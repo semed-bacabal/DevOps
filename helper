@@ -46,3 +46,14 @@ sudo chmod -R 775 /var/www/ieducar
     docker exec -it <nome_ou_id_do_container> /bin/sh
 docker compose down --remove-orphans
 ls -la
+
+
+
+systemctl status postgresql.service
+
+sudo -u postgres psql
+lisr \l
+permissions \du
+quit \q
+
+service nginx status
