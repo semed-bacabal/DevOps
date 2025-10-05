@@ -1,0 +1,1120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Complete infrastructure for i-educar/i-diario applications
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Project Settings"
+        Parameters:
+          - ProjectName
+          - Environment
+      - Label:
+          default: "Application Settings"
+        Parameters:
+          - ApplicationInstanceType
+      - Label:
+          default: "Database Settings"
+        Parameters:
+          - DatabaseName
+          - DatabaseUsername
+          - PostgreSQLVersion
+          - DatabaseInstanceType
+          - DatabaseVolumeSize
+      - Label:
+          default: "SSL Settings"
+        Parameters:
+          - SSLCertificateArn
+    ParameterLabels:
+      ProjectName:
+        default: "Project Name"
+      Environment:
+        default: "Environment"
+      ApplicationInstanceType:
+        default: "Application Instance Type"
+      DatabaseName:
+        default: "Database Name"
+      DatabaseUsername:
+        default: "Database Username"
+      PostgreSQLVersion:
+        default: "PostgreSQL Version"
+      DatabaseInstanceType:
+        default: "Database Instance Type"
+      DatabaseVolumeSize:
+        default: "Database Volume Size (GB)"
+      SSLCertificateArn:
+        default: "SSL Certificate ARN"
+
+Parameters:
+  ProjectName:
+    Description: 'Name of the project to be deployed'
+    Type: String
+    Default: i-educar
+    AllowedValues:
+      - i-educar
+      - i-diario
+    ConstraintDescription: 'Must be i-educar or i-diario'
+
+  Environment:
+    Description: 'Deployment environment'
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - uat
+      - prod
+    ConstraintDescription: 'Must be dev, uat or prod'
+
+  ApplicationInstanceType:
+    Description: 'EC2 instance type for the application'
+    Type: String
+    Default: t4g.small
+    AllowedValues:
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+      - t4g.xlarge
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+    ConstraintDescription: 'Must be a valid instance type'
+
+  DatabaseName:
+    Description: 'PostgreSQL database name'
+    Type: String
+    Default: semed_db
+    MinLength: 3
+    MaxLength: 32
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
+    ConstraintDescription: 'Must start with a letter and contain only letters, numbers or underscore'
+
+  DatabaseUsername:
+    Description: 'Administrative database user'
+    Type: String
+    Default: semed_user
+    MinLength: 3
+    MaxLength: 32
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
+    ConstraintDescription: 'Must start with a letter and contain only letters, numbers or underscore'
+
+  PostgreSQLVersion:
+    Description: 'PostgreSQL version to install'
+    Type: String
+    Default: '17'
+    AllowedValues:
+      - '16'
+      - '17'
+    ConstraintDescription: 'Must be 16 or 17'
+
+  DatabaseInstanceType:
+    Description: 'EC2 instance type for the database'
+    Type: String
+    Default: t4g.small
+    AllowedValues:
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+      - t3.small
+      - t3.medium
+      - t3.large
+    ConstraintDescription: 'Must be a valid instance type'
+
+  DatabaseVolumeSize:
+    Description: 'Database EBS volume size in GB'
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 1000
+    ConstraintDescription: 'Must be between 20 and 1000 GB'
+
+  SSLCertificateArn:
+    Description: 'ARN of the SSL/TLS certificate from AWS Certificate Manager (optional for HTTPS)'
+    Type: String
+    Default: ''
+    AllowedPattern: '^(arn:aws:acm:[^:]+:[0-9]+:certificate/[a-zA-Z0-9-]+)?$'
+    ConstraintDescription: 'Must be a valid ACM ARN or empty'
+
+Conditions:
+  IsApplicationArm64: !Or
+    - !Equals [ !Ref ApplicationInstanceType, t4g.small ]
+    - !Equals [ !Ref ApplicationInstanceType, t4g.medium ]
+    - !Equals [ !Ref ApplicationInstanceType, t4g.large ]
+  IsDatabaseArm64: !Or
+    - !Equals [ !Ref DatabaseInstanceType, t4g.micro ]
+    - !Equals [ !Ref DatabaseInstanceType, t4g.small ]
+    - !Equals [ !Ref DatabaseInstanceType, t4g.medium ]
+    - !Equals [ !Ref DatabaseInstanceType, t4g.large ]
+  HasSSLCertificate: !Not [ !Equals [ !Ref SSLCertificateArn, '' ] ]
+  NoSSLCertificate: !Equals [ !Ref SSLCertificateArn, '' ]
+
+Resources:
+  # ========================================
+  # 1. NETWORK INFRASTRUCTURE
+  # ========================================
+  
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-vpc
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  MainInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-igw
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  MainVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref MainInternetGateway
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-nat-eip
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  MainNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnetAZ1
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-nat-gw
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Subnets Públicas
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-public-subnet-az1
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-public-subnet-az2
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Subnets Privadas
+  PrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-private-subnet-az1
+        - Key: Type
+          Value: Private
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-private-subnet-az2
+        - Key: Type
+          Value: Private
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Routing Infrastructure
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-public-rt
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-private-rt
+        - Key: Type
+          Value: Private
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: MainVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MainInternetGateway
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref MainNATGateway
+
+  # Route Table Associations
+  PublicSubnetAZ1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetAZ2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetAZ1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetAZ1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetAZ2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetAZ2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ========================================
+  # 2. IAM ROLES AND SECURITY
+  # ========================================
+  
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/ec2/${ProjectName}-${Environment}-application"
+      RetentionInDays: 14
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-app-logs"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+  
+  DatabaseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/ec2/${ProjectName}-${Environment}-database"
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-db-logs"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+  
+  ApplicationInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-ec2-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-secrets-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource:
+                  - !Ref DatabaseSecret
+                  - !Ref S3AccessSecret
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
+                  - "logs:DescribeLogGroups"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ec2:DescribeInstances"
+                  - "ec2:DescribeTags"
+                Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-ec2-role
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ApplicationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${ProjectName}-${Environment}-ec2-profile"
+      Roles:
+        - !Ref ApplicationInstanceRole
+
+  # Security Groups
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-${Environment}-alb-sg"
+      GroupDescription: 'Security group for Application Load Balancer - allows HTTP/HTTPS from internet'
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP access from internet'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS access from internet'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'All outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-alb-sg
+        - Key: Type
+          Value: LoadBalancer
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-${Environment}-app-sg"
+      GroupDescription: 'Security group for application instances - allows traffic from ALB'
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: 'HTTP access from Load Balancer'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'All outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-app-sg
+        - Key: Type
+          Value: Application
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-${Environment}-database-sg"
+      GroupDescription: 'Security group for PostgreSQL database instance - allows access from application'
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          Description: 'PostgreSQL access from application instances'
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          Description: 'SSH access from application instances'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'All outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-database-sg
+        - Key: Type
+          Value: Database
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ========================================
+  # 3. WEB APPLICATION FIREWALL AND LOAD BALANCER
+  # ========================================
+  
+  WebApplicationFirewall:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-waf"
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${ProjectName}-${Environment}-waf-requests"
+      Rules:
+        - Name: AWSManagedCommonRuleSet
+          Priority: 1
+          OverrideAction:
+            Count: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules:
+                - Name: SizeRestrictions_BODY
+                - Name: GenericRFI_BODY
+                - Name: GenericRFI_QUERYARGUMENTS
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ProjectName}-${Environment}-waf-common-rules"
+        - Name: AWSManagedKnownBadInputsRuleSet
+          Priority: 2
+          OverrideAction:
+            Count: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ProjectName}-${Environment}-waf-bad-inputs"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-waf
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-alb
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref PublicSubnetAZ1
+        - !Ref PublicSubnetAZ2
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+        - Key: routing.http2.enabled
+          Value: 'true'
+        - Key: access_logs.s3.enabled
+          Value: 'false'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-alb
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  WAFAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref ApplicationLoadBalancer
+      WebACLArn: !GetAtt WebApplicationFirewall.Arn
+
+  ApplicationTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-app-tg
+      VpcId: !Ref MainVPC
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher:
+        HttpCode: '200,302,301'
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '300'
+        - Key: stickiness.enabled
+          Value: 'false'
+      Targets:
+        - Id: !Ref ApplicationInstance
+          Port: 80
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-app-tg
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Load Balancer Listeners - Conditional creation based on SSL certificate
+
+  HTTPListenerWithoutSSL:
+    Condition: NoSSLCertificate
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApplicationTargetGroup
+
+  HTTPListenerWithSSL:
+    Condition: HasSSLCertificate
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  HTTPSListener:
+    Condition: HasSSLCertificate
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref SSLCertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApplicationTargetGroup
+
+  # ========================================
+  # 4. COMPUTE INSTANCES
+  # ========================================
+  
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - DatabaseSecret
+      - DatabaseInstance
+      - S3AccessSecret
+      - S3Bucket
+    Properties:
+      InstanceType: !Ref ApplicationInstanceType
+      SecurityGroupIds:
+        - !Ref ApplicationSecurityGroup
+      SubnetId: !Ref PrivateSubnetAZ1
+      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      ImageId: !If
+        - IsApplicationArm64
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id}}'
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+            Iops: 3000
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-app
+        - Key: Type
+          Value: Application
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          {
+            echo "[UserData] Iniciando configuração da instância EC2..."
+            echo "[UserData] Configurando timezone..."
+            timedatectl set-timezone America/Sao_Paulo
+
+            echo "[UserData] Instalando CloudWatch Agent..."
+            wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+            dpkg -i -E ./amazon-cloudwatch-agent.deb
+
+            # Instalação do i-Educar se ProjectName for i-educar
+            if [ "${ProjectName}" = "i-educar" ]; then
+              echo "[UserData] Projeto i-educar detectado. Iniciando instalação..."
+
+              echo "[UserData] Adicionando repositórios..."
+              add-apt-repository ppa:openjdk-r/ppa -y
+              add-apt-repository ppa:ondrej/php -y
+              apt update
+
+              echo "[UserData] Instalando dependências..."
+              if apt install -y nginx redis openjdk-8-jdk openssl unzip php8.4-common php8.4-cli php8.4-fpm php8.4-bcmath php8.4-curl php8.4-mbstring php8.4-pgsql php8.4-xml php8.4-zip php8.4-gd git jq awscli postgresql-client; then
+                echo "[UserData] Dependências instaladas com sucesso!"
+              else
+                echo "[UserData] ERRO: Falha na instalação de dependências!" >&2
+                exit 1
+              fi
+
+              echo "[UserData] Instalando Composer..."
+              export HOME=/root
+              export COMPOSER_ALLOW_SUPERUSER=1
+              if php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
+                 php composer-setup.php --install-dir=/usr/bin --filename=composer && \
+                 php -r "unlink('composer-setup.php');"; then
+                echo "[UserData] Composer instalado com sucesso!"
+              else
+                echo "[UserData] ERRO: Falha na instalação do Composer!" >&2
+                exit 1
+              fi
+
+              echo "[UserData] Clonando repositório do i-Educar..."
+              if git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar; then
+                echo "[UserData] Repositório clonado com sucesso!"
+                cd /var/www/
+                sudo chmod -R 777 ieducar/
+                cd /var/www/ieducar/
+                cp .env.example .env
+              else
+                echo "[UserData] ERRO: Falha ao clonar repositório!" >&2
+                exit 1
+              fi
+
+              echo "[UserData] Configurando AWS CLI..."
+              aws configure set region ${AWS::Region}
+              
+              echo "[UserData] Buscando secrets do AWS Secrets Manager..."
+              DB_SECRET_ARN="${DatabaseSecret}"
+              S3_SECRET_ARN="${S3AccessSecret}"
+              
+              DB_HOST="${DatabaseInstance.PrivateIp}"
+              DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --query SecretString --output text | jq -r '.password')
+              
+              S3_SECRET=$(aws secretsmanager get-secret-value --secret-id "$S3_SECRET_ARN" --query SecretString --output text)
+              AWS_ACCESS_KEY_ID=$(echo "$S3_SECRET" | jq -r '.AWS_ACCESS_KEY_ID')
+              AWS_SECRET_ACCESS_KEY=$(echo "$S3_SECRET" | jq -r '.AWS_SECRET_ACCESS_KEY')
+              AWS_DEFAULT_REGION=$(echo "$S3_SECRET" | jq -r '.AWS_DEFAULT_REGION')
+              AWS_BUCKET=$(echo "$S3_SECRET" | jq -r '.AWS_BUCKET')
+
+              echo "[UserData] Configurando variáveis de ambiente do banco de dados (.env)..."
+              
+              sed -i "s/^DB_CONNECTION=.*/DB_CONNECTION=pgsql/" /var/www/ieducar/.env
+              sed -i "s/^DB_HOST=.*/DB_HOST=$DB_HOST/" /var/www/ieducar/.env
+              sed -i "s/^DB_PORT=.*/DB_PORT=5432/" /var/www/ieducar/.env
+              sed -i "s/^DB_DATABASE=.*/DB_DATABASE=${DatabaseName}/" /var/www/ieducar/.env
+              sed -i "s/^DB_USERNAME=.*/DB_USERNAME=${DatabaseUsername}/" /var/www/ieducar/.env
+              sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" /var/www/ieducar/.env
+
+              # echo "[UserData] Configurando variáveis de ambiente do S3 (.env)..."
+              # sed -i "s/^ASSETS_SECURE=.*/ASSETS_SECURE=true/" /var/www/ieducar/.env
+              sed -i "s/^FILESYSTEM_DISK=.*/FILESYSTEM_DISK=s3/" /var/www/ieducar/.env
+              sed -i "s/^AWS_ACCESS_KEY_ID=.*/AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID/" /var/www/ieducar/.env
+              sed -i "s/^AWS_SECRET_ACCESS_KEY=.*/AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY/" /var/www/ieducar/.env
+              sed -i "s/^AWS_DEFAULT_REGION=.*/AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION/" /var/www/ieducar/.env
+              sed -i "s/^AWS_BUCKET=.*/AWS_BUCKET=$AWS_BUCKET/" /var/www/ieducar/.env
+
+              # Aguarda o PostgreSQL ficar disponível
+              echo "[UserData] Aguardando PostgreSQL ficar disponível..."
+              max_attempts=10
+              attempt=1
+              while ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "${DatabaseUsername}" -d "${DatabaseName}" -c "SELECT 1" > /dev/null 2>&1; do
+                echo "[UserData] PostgreSQL ainda não está disponível. Tentativa $attempt/$max_attempts. Aguardando 20 segundos..."
+                if [ $attempt -ge $max_attempts ]; then
+                  echo "[UserData] ERRO: PostgreSQL não ficou disponível após $max_attempts tentativas!" >&2
+                  exit 1
+                fi
+                sleep 30
+                attempt=$((attempt + 1))
+              done
+              echo "[UserData] PostgreSQL está disponível!"
+
+              echo "[UserData] Configurando Nginx..."
+              cp /var/www/ieducar/docker/nginx/conf.d/* /etc/nginx/conf.d/
+              cp /var/www/ieducar/docker/nginx/snippets/* /etc/nginx/snippets/
+              sed -i 's/fpm:9000/unix:\/run\/php\/php-fpm.sock/g' /etc/nginx/conf.d/upstream.conf
+              rm /etc/nginx/sites-enabled/default
+              nginx -s reload
+
+              echo "[UserData] Instalando i-Educar..."
+              if composer new-install; then
+                echo "[UserData] i-Educar instalado com sucesso!"
+                echo "[UserData] Populando banco de dados com os dados iniciais necessários para o funcionamento..."
+                if php artisan db:seed; then
+                  echo "[UserData] Banco de dados populado com sucesso!"
+                else
+                  echo "[UserData] ERRO: Falha ao popular o banco de dados!" >&2
+                  exit 1
+                fi
+              else
+                echo "[UserData] ERRO: Falha na instalação do i-Educar!" >&2
+                exit 1
+              fi
+
+              echo "[UserData] Instalação do i-Educar finalizada."
+              
+              echo "[UserData] Verificando serviços..."
+              systemctl status nginx --no-pager -l
+              systemctl status php8.4-fpm --no-pager -l
+              
+              echo "[UserData] Limpando arquivos temporários..."
+              apt autoremove -y
+              apt autoclean
+              
+              echo "[UserData] Criando marca de conclusão..."
+              echo "$(date): i-Educar installation completed successfully" > /var/log/installation-complete.log
+            fi
+            echo "[UserData] Configuração do UserData finalizada."
+          } 2>&1 | tee -a /var/log/user-data.log
+
+  # ========================================
+  # 5. POSTGRESQL DATABASE INSTANCE
+  # ========================================
+
+  DatabaseInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: DatabaseSecret
+    Properties:
+      InstanceType: !Ref DatabaseInstanceType
+      SecurityGroupIds:
+        - !Ref DatabaseSecurityGroup
+      SubnetId: !Ref PrivateSubnetAZ1
+      ImageId: !If
+        - IsDatabaseArm64
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id}}'
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref DatabaseVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: false
+            Iops: 3000
+      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-database
+        - Key: Type
+          Value: Database
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          {
+            echo "[UserData] Iniciando configuração da instância de banco de dados PostgreSQL..."
+            echo "[UserData] Configurando timezone..."
+            timedatectl set-timezone America/Sao_Paulo
+
+            echo "[UserData] Instalando CloudWatch Agent..."
+            wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+            dpkg -i -E ./amazon-cloudwatch-agent.deb
+
+            echo "[UserData] Atualizando sistema..."
+            apt update
+
+            echo "[UserData] Instalando dependências básicas..."
+            apt install -y awscli jq
+
+            echo "[UserData] Configurando AWS CLI..."
+            aws configure set region ${AWS::Region}
+
+            echo "[UserData] Buscando senha do banco de dados..."
+            DB_SECRET_ARN="${DatabaseSecret}"
+            DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --query SecretString --output text | jq -r '.password')
+
+            echo "[UserData] Instalando PostgreSQL e PostgreSQL Contrib..."
+            apt install -y postgresql postgresql-contrib
+
+            echo "[UserData] Iniciando serviço PostgreSQL..."
+            systemctl start postgresql.service
+            systemctl enable postgresql
+
+            echo "[UserData] Criando usuário do banco de dados..."
+            sudo -u postgres psql -c "CREATE USER ${DatabaseUsername} WITH PASSWORD '$DB_PASSWORD' SUPERUSER CREATEDB;"
+
+            echo "[UserData] Criando banco de dados..."
+            sudo -u postgres psql -c "CREATE DATABASE ${DatabaseName};"
+
+            echo "[UserData] Configurando PostgreSQL para aceitar conexões da aplicação..."
+            PG_VERSION=$(sudo -u postgres psql -t -c "SELECT version();" | grep -oP '(\d+)' | head -1)
+            PG_CONFIG_DIR="/etc/postgresql/$PG_VERSION/main"
+
+            # Permitir conexões da rede
+            sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" "$PG_CONFIG_DIR/postgresql.conf"
+            
+            # Configurações básicas de performance
+            sed -i "s/#shared_buffers = 128MB/shared_buffers = 256MB/" "$PG_CONFIG_DIR/postgresql.conf"
+            sed -i "s/#effective_cache_size = 4GB/effective_cache_size = 1GB/" "$PG_CONFIG_DIR/postgresql.conf"
+            sed -i "s/#maintenance_work_mem = 64MB/maintenance_work_mem = 128MB/" "$PG_CONFIG_DIR/postgresql.conf"
+            sed -i "s/#checkpoint_completion_target = 0.9/checkpoint_completion_target = 0.9/" "$PG_CONFIG_DIR/postgresql.conf"
+            sed -i "s/#wal_buffers = -1/wal_buffers = 16MB/" "$PG_CONFIG_DIR/postgresql.conf"
+            sed -i "s/#random_page_cost = 4.0/random_page_cost = 1.1/" "$PG_CONFIG_DIR/postgresql.conf"
+            
+            # Permitir autenticação da VPC
+            echo "host    all             all             10.0.0.0/16             md5" >> "$PG_CONFIG_DIR/pg_hba.conf"
+
+            echo "[UserData] Reiniciando PostgreSQL..."
+            systemctl restart postgresql
+            
+            echo "[UserData] Verificando status do PostgreSQL..."
+            systemctl status postgresql --no-pager -l
+            
+            echo "[UserData] Testando conexão..."
+            sudo -u postgres psql -c "SELECT version();"
+            
+            echo "[UserData] Limpando arquivos temporários..."
+            apt autoremove -y
+            apt autoclean
+            rm -f amazon-cloudwatch-agent.deb
+            
+            echo "[UserData] Criando marca de conclusão..."
+            echo "$(date): PostgreSQL installation completed successfully" > /var/log/installation-complete.log
+            
+            echo "[UserData] IMPORTANTE: Após o deploy, verifique:"
+            echo "[UserData] 1. Conexão da aplicação com o banco"
+            echo "[UserData] 2. Health check do ALB"
+            echo "[UserData] 3. Logs no CloudWatch"
+            echo "[UserData] 4. Configuração de backup se necessário"
+
+            echo "[UserData] Configuração do PostgreSQL concluída!"
+          } 2>&1 | tee -a /var/log/user-data.log
+
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-database-credentials"
+      Description: "Auto-generated password for PostgreSQL database"
+      GenerateSecretString:
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\`&$%*()[]{}!#^|;:,.<>?~=+ '
+        ExcludePunctuation: true
+        RequireEachIncludedType: false
+        IncludeSpace: false
+        SecretStringTemplate: !Sub '{"username": "${DatabaseUsername}"}'
+        GenerateStringKey: 'password'
+      Tags:
+      - Key: Name
+        Value: !Sub "${ProjectName}-${Environment}-database-credentials"
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: Project
+        Value: !Ref ProjectName
+
+  # ========================================
+  # 6. STORAGE INFRASTRUCTURE
+  # ========================================
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-storage"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: TransitionToIA
+            Status: Enabled
+            Transition:
+              TransitionInDays: 30
+              StorageClass: STANDARD_IA
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-storage
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  S3AccessUser:
+    Type: AWS::IAM::User
+    DependsOn: S3Bucket
+    Properties:
+      UserName: !Sub "${ProjectName}-${Environment}-s3-access-user"
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-s3-full-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:DeleteObjectVersion"
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3Bucket}/*"
+              - Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetBucketVersioning"
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3Bucket}"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-s3-user
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  S3AccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref S3AccessUser
+
+  S3AccessSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-s3-credentials"
+      Description: "Credentials to access the application's S3 bucket"
+      SecretString: !Sub |
+        {
+          "AWS_BUCKET": "${S3Bucket}",
+          "AWS_DEFAULT_REGION": "${AWS::Region}",
+          "AWS_ACCESS_KEY_ID": "${S3AccessKey}",
+          "AWS_SECRET_ACCESS_KEY": "${S3AccessKey.SecretAccessKey}"
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-s3-credentials"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  LoadBalancerURL:
+    Description: "Public URL of the Application Load Balancer"
+    Value: !If
+      - HasSSLCertificate
+      - !Sub "https://${ApplicationLoadBalancer.DNSName}"
+      - !Sub "http://${ApplicationLoadBalancer.DNSName}"
+
+  ApplicationInstanceId:
+    Description: "Application EC2 instance ID"
+    Value: !Ref ApplicationInstance
+
+  ApplicationInstancePrivateIP:
+    Description: "Private IP of the application instance"
+    Value: !GetAtt ApplicationInstance.PrivateIp
+
+  DatabaseInstanceId:
+    Description: "PostgreSQL database EC2 instance ID"
+    Value: !Ref DatabaseInstance
+
+  DatabaseEndpoint:
+    Description: "PostgreSQL database private IP address"
+    Value: !GetAtt DatabaseInstance.PrivateIp
+
+  S3BucketName:
+    Description: "S3 bucket name for application storage"
+    Value: !Ref S3Bucket
