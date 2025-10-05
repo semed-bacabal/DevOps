@@ -57,3 +57,8 @@ permissions \du
 quit \q
 
 service nginx status
+
+cat /var/log/user-data.log
+tail -n 100 /var/log/user-data.log
+
+cat /var/www/ieducar/.env
