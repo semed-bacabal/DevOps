@@ -19,8 +19,8 @@ Parameters:
     AllowedValues:
       - t3.micro
       - t3.small
-      - t2.micro
-      - t2.small
+      - t3.medium
+      - t3.large
     ConstraintDescription: 'Deve ser um tipo de instância válido.'
 
 Resources:
@@ -207,17 +207,20 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-instance
-      # UserData:
-      #   Fn::Base64: !Sub |
-      #     #!/bin/bash -ex
-      #     # Atualiza os pacotes e instala dependências
-      #     apt-get update -y
-      #     apt-get install -y git docker.io docker-compose
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          {
+            echo "[UserData] Iniciando configuração da instância EC2..."
+            echo "[UserData] Configurando timezone..."
+            timedatectl set-timezone America/Sao_Paulo
 
-      #     # Inicia e habilita o serviço do Docker
-      #     systemctl start docker
-      #     systemctl enable docker
-      #     usermod -a -G docker ubuntu
+            echo "[UserData] Instalando CloudWatch Agent..."
+            wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+            dpkg -i -E ./amazon-cloudwatch-agent.deb
+
+            echo "[UserData] Configuração do UserData finalizada."
+          } 2>&1 | tee -a /var/log/user-data.log
 
 Outputs:
   LoadBalancerURL:
