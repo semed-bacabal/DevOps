@@ -832,6 +832,13 @@ Resources:
                 echo "[UserData] Populando banco de dados com os dados iniciais necessários para o funcionamento..."
                 if php artisan db:seed; then
                   echo "[UserData] Banco de dados populado com sucesso!"
+                  echo "[UserData] Instalando módulos adicionais..."
+                  composer plug-and-play
+                  php artisan community:reports:install
+                  php artisan vendor:publish --tag=reports-assets --ansi
+                  php artisan migrate
+                  php artisan cache:clear
+                  echo "[UserData] Módulos adicionais instalados com sucesso!"
                 else
                   echo "[UserData] ERRO: Falha ao popular o banco de dados!" >&2
                   exit 1
