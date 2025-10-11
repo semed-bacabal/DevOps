@@ -14,6 +14,7 @@ Metadata:
           default: "Application Settings"
         Parameters:
           - ApplicationInstanceType
+          - ApplicationVolumeSize
       - Label:
           default: "Database Settings"
         Parameters:
@@ -33,6 +34,8 @@ Metadata:
         default: "Environment"
       ApplicationInstanceType:
         default: "Application Instance Type"
+      ApplicationVolumeSize:
+        default: "Application Volume Size (GB)"
       DatabaseName:
         default: "Database Name"
       DatabaseUsername:
@@ -48,7 +51,6 @@ Metadata:
 
 Parameters:
   ProjectName:
-    Description: 'Name of the project to be deployed'
     Type: String
     Default: i-educar
     AllowedValues:
@@ -57,7 +59,6 @@ Parameters:
     ConstraintDescription: 'Must be i-educar or i-diario'
 
   Environment:
-    Description: 'Deployment environment'
     Type: String
     Default: dev
     AllowedValues:
@@ -67,7 +68,6 @@ Parameters:
     ConstraintDescription: 'Must be dev, uat or prod'
 
   ApplicationInstanceType:
-    Description: 'EC2 instance type for the application'
     Type: String
     Default: t4g.small
     AllowedValues:
@@ -81,8 +81,14 @@ Parameters:
       - t3.xlarge
     ConstraintDescription: 'Must be a valid instance type'
 
+  ApplicationVolumeSize:
+    Type: Number
+    Default: 50
+    MinValue: 10
+    MaxValue: 1000
+    ConstraintDescription: 'Must be between 10 and 1000 GB'
+
   DatabaseName:
-    Description: 'PostgreSQL database name'
     Type: String
     Default: semed_db
     MinLength: 3
@@ -91,7 +97,6 @@ Parameters:
     ConstraintDescription: 'Must start with a letter and contain only letters, numbers or underscore'
 
   DatabaseUsername:
-    Description: 'Administrative database user'
     Type: String
     Default: semed_user
     MinLength: 3
@@ -100,7 +105,6 @@ Parameters:
     ConstraintDescription: 'Must start with a letter and contain only letters, numbers or underscore'
 
   PostgreSQLVersion:
-    Description: 'PostgreSQL version to install'
     Type: String
     Default: '17'
     AllowedValues:
@@ -109,28 +113,22 @@ Parameters:
     ConstraintDescription: 'Must be 16 or 17'
 
   DatabaseInstanceType:
-    Description: 'EC2 instance type for the database'
     Type: String
     Default: t4g.small
     AllowedValues:
       - t4g.small
       - t4g.medium
       - t4g.large
-      - t3.small
-      - t3.medium
-      - t3.large
     ConstraintDescription: 'Must be a valid instance type'
 
   DatabaseVolumeSize:
-    Description: 'Database EBS volume size in GB'
     Type: Number
-    Default: 100
-    MinValue: 20
+    Default: 50
+    MinValue: 10
     MaxValue: 1000
     ConstraintDescription: 'Must be between 20 and 1000 GB'
 
   SSLCertificateArn:
-    Description: 'ARN of the SSL/TLS certificate from AWS Certificate Manager (optional for HTTPS)'
     Type: String
     Default: ''
     AllowedPattern: '^(arn:aws:acm:[^:]+:[0-9]+:certificate/[a-zA-Z0-9-]+)?$'
@@ -141,8 +139,8 @@ Conditions:
     - !Equals [ !Ref ApplicationInstanceType, t4g.small ]
     - !Equals [ !Ref ApplicationInstanceType, t4g.medium ]
     - !Equals [ !Ref ApplicationInstanceType, t4g.large ]
+    - !Equals [ !Ref ApplicationInstanceType, t4g.xlarge ]
   IsDatabaseArm64: !Or
-    - !Equals [ !Ref DatabaseInstanceType, t4g.micro ]
     - !Equals [ !Ref DatabaseInstanceType, t4g.small ]
     - !Equals [ !Ref DatabaseInstanceType, t4g.medium ]
     - !Equals [ !Ref DatabaseInstanceType, t4g.large ]
@@ -628,6 +626,8 @@ Resources:
           Value: '300'
         - Key: stickiness.enabled
           Value: 'false'
+        - Key: load_balancing.algorithm.type
+          Value: round_robin
       Targets:
         - Id: !Ref ApplicationInstance
           Port: 80
@@ -704,10 +704,10 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-            VolumeSize: 30
+            VolumeSize: !Ref ApplicationVolumeSize
             VolumeType: gp3
             Encrypted: true
-            DeleteOnTermination: true
+            DeleteOnTermination: false
             Iops: 3000
       Tags:
         - Key: Name
@@ -722,110 +722,88 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           {
-            echo "[UserData] Iniciando configuração da instância EC2..."
             echo "[UserData] Configurando timezone..."
             timedatectl set-timezone America/Sao_Paulo
-
             echo "[UserData] Instalando CloudWatch Agent..."
             wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
             dpkg -i -E ./amazon-cloudwatch-agent.deb
-
-            # Instalação do i-Educar se ProjectName for i-educar
+            echo "[UserData] Preparando variáveis de ambiente..."
+            apt update
+            apt install -y git jq awscli
+            aws configure set region ${AWS::Region}
+            DB_HOST="${DatabaseInstance.PrivateIp}"
+            DB_SECRET_ARN="${DatabaseSecret}"
+            DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --query SecretString --output text | jq -r '.password')
+            echo "DB_PASSWORD=$DB_PASSWORD"
+            S3_SECRET_ARN="${S3AccessSecret}"
+            S3_SECRET=$(aws secretsmanager get-secret-value --secret-id "$S3_SECRET_ARN" --query SecretString --output text)
+            echo "S3_SECRET=$S3_SECRET"
+            AWS_ACCESS_KEY_ID=$(echo "$S3_SECRET" | jq -r '.AWS_ACCESS_KEY_ID')
+            AWS_SECRET_ACCESS_KEY=$(echo "$S3_SECRET" | jq -r '.AWS_SECRET_ACCESS_KEY')
+            AWS_DEFAULT_REGION=$(echo "$S3_SECRET" | jq -r '.AWS_DEFAULT_REGION')
+            AWS_BUCKET=$(echo "$S3_SECRET" | jq -r '.AWS_BUCKET')
+            check_postgres() {
+              echo "[UserData] Aguardando PostgreSQL ficar disponível..."
+              local max_attempts=10
+              local attempt=1
+              local wait_time=30
+              while ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "${DatabaseUsername}" -d "${DatabaseName}" -c "SELECT 1" > /dev/null 2>&1; do
+                echo "[UserData] PostgreSQL ainda não está disponível. Tentativa $attempt/$max_attempts. Aguardando $wait_time segundos..."
+                if [ $attempt -ge $max_attempts ]; then
+                  echo "[UserData] ERRO: PostgreSQL não ficou disponível após $max_attempts tentativas!" >&2
+                  exit 1
+                fi
+                sleep "$wait_time"
+                attempt=$((attempt + 1))
+              done
+              echo "[UserData] PostgreSQL está disponível!"
+            }
             if [ "${ProjectName}" = "i-educar" ]; then
               echo "[UserData] Projeto i-educar detectado. Iniciando instalação..."
-
-              echo "[UserData] Adicionando repositórios..."
               add-apt-repository ppa:openjdk-r/ppa -y
               add-apt-repository ppa:ondrej/php -y
-              apt update
-
-              echo "[UserData] Instalando dependências..."
-              if apt install -y nginx redis openjdk-8-jdk openssl unzip php8.4-common php8.4-cli php8.4-fpm php8.4-bcmath php8.4-curl php8.4-mbstring php8.4-pgsql php8.4-xml php8.4-zip php8.4-gd git jq awscli postgresql-client; then
+              if apt install -y nginx redis openjdk-8-jdk openssl unzip php8.4-common php8.4-cli php8.4-fpm php8.4-bcmath php8.4-curl php8.4-mbstring php8.4-pgsql php8.4-xml php8.4-zip php8.4-gd git postgresql-client; then
                 echo "[UserData] Dependências instaladas com sucesso!"
               else
                 echo "[UserData] ERRO: Falha na instalação de dependências!" >&2
                 exit 1
               fi
-
-              echo "[UserData] Instalando Composer..."
               export HOME=/root
               export COMPOSER_ALLOW_SUPERUSER=1
-              if php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
-                 php composer-setup.php --install-dir=/usr/bin --filename=composer && \
-                 php -r "unlink('composer-setup.php');"; then
+              if php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && php composer-setup.php --install-dir=/usr/bin --filename=composer && php -r "unlink('composer-setup.php');"; then
                 echo "[UserData] Composer instalado com sucesso!"
               else
                 echo "[UserData] ERRO: Falha na instalação do Composer!" >&2
                 exit 1
               fi
-
-              echo "[UserData] Clonando repositório do i-Educar..."
               if git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar; then
                 echo "[UserData] Repositório clonado com sucesso!"
                 cd /var/www/
-                sudo chmod -R 777 ieducar/
+                chmod -R 777 ieducar/
                 cd /var/www/ieducar/
                 cp .env.example .env
               else
                 echo "[UserData] ERRO: Falha ao clonar repositório!" >&2
                 exit 1
               fi
-
-              echo "[UserData] Configurando AWS CLI..."
-              aws configure set region ${AWS::Region}
-              
-              echo "[UserData] Buscando secrets do AWS Secrets Manager..."
-              DB_SECRET_ARN="${DatabaseSecret}"
-              S3_SECRET_ARN="${S3AccessSecret}"
-              
-              DB_HOST="${DatabaseInstance.PrivateIp}"
-              DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --query SecretString --output text | jq -r '.password')
-              
-              S3_SECRET=$(aws secretsmanager get-secret-value --secret-id "$S3_SECRET_ARN" --query SecretString --output text)
-              AWS_ACCESS_KEY_ID=$(echo "$S3_SECRET" | jq -r '.AWS_ACCESS_KEY_ID')
-              AWS_SECRET_ACCESS_KEY=$(echo "$S3_SECRET" | jq -r '.AWS_SECRET_ACCESS_KEY')
-              AWS_DEFAULT_REGION=$(echo "$S3_SECRET" | jq -r '.AWS_DEFAULT_REGION')
-              AWS_BUCKET=$(echo "$S3_SECRET" | jq -r '.AWS_BUCKET')
-
-              echo "[UserData] Configurando variáveis de ambiente do banco de dados (.env)..."
-              
+              echo "[UserData] Configurando i-Educar..."
               sed -i "s/^DB_CONNECTION=.*/DB_CONNECTION=pgsql/" /var/www/ieducar/.env
               sed -i "s/^DB_HOST=.*/DB_HOST=$DB_HOST/" /var/www/ieducar/.env
               sed -i "s/^DB_PORT=.*/DB_PORT=5432/" /var/www/ieducar/.env
               sed -i "s/^DB_DATABASE=.*/DB_DATABASE=${DatabaseName}/" /var/www/ieducar/.env
               sed -i "s/^DB_USERNAME=.*/DB_USERNAME=${DatabaseUsername}/" /var/www/ieducar/.env
               sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" /var/www/ieducar/.env
-
-              # echo "[UserData] Configurando variáveis de ambiente do S3 (.env)..."
-              # sed -i "s/^ASSETS_SECURE=.*/ASSETS_SECURE=true/" /var/www/ieducar/.env
               sed -i "s/^FILESYSTEM_DISK=.*/FILESYSTEM_DISK=s3/" /var/www/ieducar/.env
               sed -i "s/^AWS_ACCESS_KEY_ID=.*/AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID/" /var/www/ieducar/.env
               sed -i "s/^AWS_SECRET_ACCESS_KEY=.*/AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY/" /var/www/ieducar/.env
               sed -i "s/^AWS_DEFAULT_REGION=.*/AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION/" /var/www/ieducar/.env
               sed -i "s/^AWS_BUCKET=.*/AWS_BUCKET=$AWS_BUCKET/" /var/www/ieducar/.env
-
-              # Aguarda o PostgreSQL ficar disponível
-              echo "[UserData] Aguardando PostgreSQL ficar disponível..."
-              max_attempts=10
-              attempt=1
-              while ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "${DatabaseUsername}" -d "${DatabaseName}" -c "SELECT 1" > /dev/null 2>&1; do
-                echo "[UserData] PostgreSQL ainda não está disponível. Tentativa $attempt/$max_attempts. Aguardando 20 segundos..."
-                if [ $attempt -ge $max_attempts ]; then
-                  echo "[UserData] ERRO: PostgreSQL não ficou disponível após $max_attempts tentativas!" >&2
-                  exit 1
-                fi
-                sleep 30
-                attempt=$((attempt + 1))
-              done
-              echo "[UserData] PostgreSQL está disponível!"
-
-              echo "[UserData] Configurando Nginx..."
+              check_postgres
               cp /var/www/ieducar/docker/nginx/conf.d/* /etc/nginx/conf.d/
               cp /var/www/ieducar/docker/nginx/snippets/* /etc/nginx/snippets/
               sed -i 's/fpm:9000/unix:\/run\/php\/php-fpm.sock/g' /etc/nginx/conf.d/upstream.conf
               rm /etc/nginx/sites-enabled/default
               nginx -s reload
-
               echo "[UserData] Instalando i-Educar..."
               if composer new-install; then
                 echo "[UserData] i-Educar instalado com sucesso!"
@@ -847,21 +825,89 @@ Resources:
                 echo "[UserData] ERRO: Falha na instalação do i-Educar!" >&2
                 exit 1
               fi
-
               echo "[UserData] Instalação do i-Educar finalizada."
-              
-              echo "[UserData] Verificando serviços..."
               systemctl status nginx --no-pager -l
               systemctl status php8.4-fpm --no-pager -l
-              
-              echo "[UserData] Limpando arquivos temporários..."
-              apt autoremove -y
-              apt autoclean
-              
-              echo "[UserData] Criando marca de conclusão..."
               echo "$(date): i-Educar installation completed successfully" > /var/log/installation-complete.log
+            else
+              echo "[UserData] Projeto i-diario detectado. Iniciando instalação..."
+              export DEBIAN_FRONTEND=noninteractive
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+              echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
+              if apt install -y curl wget git build-essential libpq-dev shared-mime-info rbenv postgresql-client redis; then
+                echo "[UserData] Dependências básicas instaladas com sucesso!"
+              else
+                echo "[UserData] ERRO: Falha na instalação de dependências básicas!" >&2
+                exit 1
+              fi
+              echo "[UserData] Configurando OpenSSL..."
+              mkdir -p ~/openssl
+              cd ~/openssl
+              wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+              tar -xzvf openssl-1.1.1w.tar.gz
+              cd openssl-1.1.1w
+              ./config --prefix=/opt/openssl-1.1 --openssldir=/opt/openssl-1.1
+              make -j$(nproc)
+              make install
+              cd ~/ 
+              echo "[UserData] Instalando Ruby via rbenv..."
+              export PATH="$HOME/.rbenv/bin:$PATH"
+              eval "$(rbenv init -)"
+              RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.6.6
+              rbenv global 2.6.6
+              ruby -v
+              gem update --system 3.3.22
+              gem install bundler -v 2.4.22
+              echo "[UserData] Instalando Node.js via NVM..."
+              curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+              [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+              nvm install 14
+              nvm use 14
+              npm install -g yarn
+              node -v
+              yarn -v
+              echo "[UserData] Clonando repositório do i-Diário..."
+              if git clone https://github.com/semed-bacabal/i-diario.git /var/www/idiario; then
+                echo "[UserData] Repositório clonado com sucesso!"
+                cd /var/www/idiario
+                chmod -R 777 /var/www/idiario
+              else
+                echo "[UserData] ERRO: Falha ao clonar repositório!" >&2
+                exit 1
+              fi
+              echo "[UserData] Instalando i-Diário..."
+              export RAILS_ENV=production
+              bundle install
+              yarn install
+              cp public/404.html.sample public/404.html
+              cp public/500.html.sample public/500.html
+              echo "production:" > config/database.yml
+              echo "  adapter: postgresql" >> config/database.yml
+              echo "  encoding: utf8" >> config/database.yml
+              echo "  database: ${DatabaseName}" >> config/database.yml
+              echo "  pool: 5" >> config/database.yml
+              echo "  username: ${DatabaseUsername}" >> config/database.yml
+              echo "  password: $DB_PASSWORD" >> config/database.yml
+              echo "  host: $DB_HOST" >> config/database.yml
+              echo "  port: 5432" >> config/database.yml
+              echo "production:" > config/secrets.yml
+              echo "  secret_key_base: $(bundle exec rails secret)" >> config/secrets.yml
+              echo "  REDIS_URL: 'redis://localhost'" >> config/secrets.yml
+              echo "  AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID" >> config/secrets.yml
+              echo "  AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY" >> config/secrets.yml
+              echo "  AWS_REGION: $AWS_DEFAULT_REGION" >> config/secrets.yml
+              echo "  AWS_BUCKET: $AWS_BUCKET" >> config/secrets.yml
+              check_postgres
+              bundle exec rails db:create
+              bundle exec rails db:migrate
+              bundle exec rails assets:precompile
+              bundle exec rails entity:setup NAME=idiario DOMAIN="${ApplicationLoadBalancer.DNSName}" DATABASE=${DatabaseName}
+              bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
+              echo "[UserData] Instalação do i-Diário finalizada."
+              echo "$(date): i-Diario installation completed successfully" > /var/log/installation-complete.log
             fi
-            echo "[UserData] Configuração do UserData finalizada."
           } 2>&1 | tee -a /var/log/user-data.log
 
   # ========================================
