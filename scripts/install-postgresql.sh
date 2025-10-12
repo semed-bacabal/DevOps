@@ -3,8 +3,6 @@
 # Script de instalação do PostgreSQL
 # Este script instala e configura o PostgreSQL para as aplicações
 
-set -e  # Sair em caso de erro
-
 echo "[PostgreSQL] Iniciando configuração da instância de banco de dados PostgreSQL..."
 
 echo "[UserData] Iniciando configuração da instância de banco de dados PostgreSQL..."
