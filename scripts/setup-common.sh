@@ -3,8 +3,6 @@
 # Script de configuração comum para as aplicações i-educar/i-diario
 # Este script realiza configurações básicas necessárias para ambas as aplicações
 
-set -e  # Sair em caso de erro
-
 echo "[Common Setup] Iniciando configurações comuns..."
 echo "[UserData] Configurando timezone..."
 timedatectl set-timezone America/Sao_Paulo
