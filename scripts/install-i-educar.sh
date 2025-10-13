@@ -43,10 +43,10 @@ sed -i "s/^AWS_BUCKET=.*/AWS_BUCKET=$AWS_BUCKET/" .env
 check_postgres
 
 log "Configurando Nginx..."
-cp /var/www/ieducar/docker/nginx/conf.d/* /etc/nginx/conf.d/
-cp /var/www/ieducar/docker/nginx/snippets/* /etc/nginx/snippets/
+cp docker/nginx/conf.d/* /etc/nginx/conf.d/
+cp docker/nginx/snippets/* /etc/nginx/snippets/
 sed -i 's/fpm:9000/unix:\/run\/php\/php-fpm.sock/g' /etc/nginx/conf.d/upstream.conf
-rm /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/default
 nginx -s reload
 
 log "Instalando dependências do projeto..."
@@ -59,7 +59,7 @@ if ! php artisan db:seed; then
     error_exit "Falha ao popular o banco de dados."
 fi
 
-log "Instalando módulos adicionais e finalizando configuração..."
+log "Instalando módulos e finalizando configuração..."
 composer plug-and-play
 php artisan community:reports:install
 php artisan vendor:publish --tag=reports-assets --ansi
