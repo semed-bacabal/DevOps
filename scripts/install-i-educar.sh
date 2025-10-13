@@ -1,3 +1,10 @@
+#!/bin/bash
+# i-Educar installation script
+
+# Running common setup script
+SCRIPT_DIR=$(dirname "$0")
+source "$SCRIPT_DIR/setup-common.sh"
+
 log "Projeto i-educar detectado. Iniciando instalação..."
 
 log "Adicionando repositórios PPA..."
@@ -66,7 +73,6 @@ php artisan vendor:publish --tag=reports-assets --ansi
 php artisan migrate
 php artisan cache:clear
 
-log "Instalação do i-Educar finalizada."
 systemctl status nginx --no-pager -l
 systemctl status php8.4-fpm --no-pager -l
-log "$(date): i-Educar installation completed successfully" > /var/log/installation-complete.log
+log "Instalação do i-Educar finalizada." > /var/log/installation-complete.log
