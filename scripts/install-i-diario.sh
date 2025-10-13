@@ -101,7 +101,7 @@ log "Pré-compilando assets..."
 bundle exec rails assets:precompile || error_exit "Falha ao pré-compilar assets."
 
 log "Configurando entidade e admin..."
-bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME || error_exit "Falha ao configurar entidade."
+bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
 bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$ || error_exit "Falha ao criar usuário admin."
 
 log "Instalação do i-Diário finalizada."
