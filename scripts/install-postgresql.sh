@@ -2,11 +2,11 @@
 # Script de instalação do PostgreSQL
 
 log() {
-    echo "ℹ️[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "ℹ️  [$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 error_exit() {
-    echo "❌[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "❌  [$(date '+%Y-%m-%d %H:%M:%S')] $1"
     exit 1
 }
 
