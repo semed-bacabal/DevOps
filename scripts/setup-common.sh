@@ -2,11 +2,11 @@
 # Script de configuração comum para as aplicações i-educar/i-diario
 
 log() {
-    echo "ℹ️[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "ℹ️  [$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 error_exit() {
-    echo "❌[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "❌  [$(date '+%Y-%m-%d %H:%M:%S')] $1"
     exit 1
 }
 
