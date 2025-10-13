@@ -12,7 +12,7 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
-if ! apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis; then
+if ! apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis postgresql-client; then
     error_exit "Falha na instalação de dependências."
 fi
 
