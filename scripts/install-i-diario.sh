@@ -1,8 +1,14 @@
+#!/bin/bash
+# i-Diário installation script
+
+# Running common setup script
+SCRIPT_DIR=$(dirname "$0")
+source "$SCRIPT_DIR/setup-common.sh"
+
 log "Projeto i-diario detectado. Iniciando instalação..."
+
 export DEBIAN_FRONTEND=noninteractive
 export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-
-log "Configurando inotify..."
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
@@ -101,5 +107,11 @@ bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$ ||
 log "Instalação do i-Diário finalizada."
 log "$(date): i-Diario installation completed successfully" > /var/log/installation-complete.log
 
-log "Iniciando servidor Rails..."
-bundle exec rails server -b 0.0.0.0 -p 80
+log "Iniciando serviços..."
+mkdir -p log
+
+bundle exec rails server -b 0.0.0.0 -p 80 &
+bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 --logfile log/sidekiq.log &
+bundle exec sidekiq -c 10 --logfile log/sidekiq.log &
+
+log "Instalação do i-Diário finalizada." > /var/log/installation-complete.log
