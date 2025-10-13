@@ -16,7 +16,7 @@ log "Configurando timezone..."
 timedatectl set-timezone America/Sao_Paulo
 
 log "Instalando CloudWatch Agent..."
-if ! wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb; then
+if ! wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/arm64/latest/amazon-cloudwatch-agent.deb; then
     error_exit "Falha ao baixar o CloudWatch Agent."
 fi
 if ! dpkg -i -E ./amazon-cloudwatch-agent.deb; then
