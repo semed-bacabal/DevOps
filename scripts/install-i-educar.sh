@@ -35,17 +35,17 @@ chmod -R 777 .
 
 log "Configurando ambiente (.env)..."
 cp .env.example .env
-sed -i "s/^DB_CONNECTION=.*/DB_CONNECTION=pgsql/" .env
-sed -i "s/^DB_HOST=.*/DB_HOST=$DB_HOST/" .env
-sed -i "s/^DB_PORT=.*/DB_PORT=5432/" .env
-sed -i "s/^DB_DATABASE=.*/DB_DATABASE=$DB_NAME/" .env
-sed -i "s/^DB_USERNAME=.*/DB_USERNAME=$DB_USERNAME/" .env
-sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
-sed -i "s/^FILESYSTEM_DISK=.*/FILESYSTEM_DISK=s3/" .env
-sed -i "s/^AWS_ACCESS_KEY_ID=.*/AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID/" .env
-sed -i "s/^AWS_SECRET_ACCESS_KEY=.*/AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY/" .env
-sed -i "s/^AWS_DEFAULT_REGION=.*/AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION/" .env
-sed -i "s/^AWS_BUCKET=.*/AWS_BUCKET=$AWS_BUCKET/" .env
+sed -i "s|^DB_CONNECTION=.*|DB_CONNECTION=pgsql|" .env
+sed -i "s|^DB_HOST=.*|DB_HOST=$DB_HOST|" .env
+sed -i "s|^DB_PORT=.*|DB_PORT=5432|" .env
+sed -i "s|^DB_DATABASE=.*|DB_DATABASE=$DB_NAME|" .env
+sed -i "s|^DB_USERNAME=.*|DB_USERNAME=$DB_USERNAME|" .env
+sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$DB_PASSWORD|" .env
+sed -i "s|^FILESYSTEM_DISK=.*|FILESYSTEM_DISK=s3|" .env
+sed -i "s|^AWS_ACCESS_KEY_ID=.*|AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID|" .env
+sed -i "s|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY|" .env
+sed -i "s|^AWS_DEFAULT_REGION=.*|AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION|" .env
+sed -i "s|^AWS_BUCKET=.*|AWS_BUCKET=$AWS_BUCKET|" .env
 
 check_postgres
 
