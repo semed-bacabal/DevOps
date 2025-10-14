@@ -83,7 +83,7 @@ Parameters:
 
   ApplicationVolumeSize:
     Type: Number
-    Default: 50
+    Default: 10
     MinValue: 10
     MaxValue: 1000
     ConstraintDescription: 'Must be between 10 and 1000 GB'
@@ -123,10 +123,10 @@ Parameters:
 
   DatabaseVolumeSize:
     Type: Number
-    Default: 50
+    Default: 10
     MinValue: 10
     MaxValue: 1000
-    ConstraintDescription: 'Must be between 20 and 1000 GB'
+    ConstraintDescription: 'Must be between 10 and 1000 GB'
 
   SSLCertificateArn:
     Type: String
@@ -701,10 +701,9 @@ Resources:
         - DeviceName: /dev/sda1
           Ebs:
             VolumeSize: !Ref ApplicationVolumeSize
-            VolumeType: gp3
+            VolumeType: gp2
             Encrypted: true
-            DeleteOnTermination: false
-            Iops: 3000
+            DeleteOnTermination: true
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-app
@@ -717,13 +716,10 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          
-          # Log de execução
           exec > >(tee -a /var/log/user-data.log) 2>&1
-          
+          # set -e
           echo "[UserData] Iniciando configuração da instância de aplicação..."
           
-          # Definir variáveis de ambiente para os scripts
           export AWS_REGION="${AWS::Region}"
           export DB_HOST="${DatabaseInstance.PrivateIp}"
           export DB_SECRET_ARN="${DatabaseSecret}"
@@ -731,35 +727,28 @@ Resources:
           export DB_USERNAME="${DatabaseUsername}"
           export DB_NAME="${DatabaseName}"
           export ALB_DNS_NAME="${ApplicationLoadBalancer.DNSName}"
+
+          if [[ "${ApplicationInstanceType}" == t4g* ]]; then
+            export ARCH=arm64
+          elif [[ "${ApplicationInstanceType}" == t3* ]]; then
+            export ARCH=amd64
+          fi
           
-          # Criar diretório temporário para scripts
+          echo "[UserData] Baixando scripts de instalação..."
           mkdir -p /tmp/install-scripts
           cd /tmp/install-scripts
-          
-          # Baixar scripts do GitHub
-          echo "[UserData] Baixando scripts de instalação..."
           wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/setup-common.sh" -O setup-common.sh
-
           if [ "${ProjectName}" = "i-educar" ]; then
             wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-educar.sh" -O install-app.sh
-          fi
-          if [ "${ProjectName}" = "i-diario" ]; then
+          elif [ "${ProjectName}" = "i-diario" ]; then
             wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-diario.sh" -O install-app.sh
           fi
-          
-          # Tornar scripts executáveis
           chmod +x *.sh
           
-          # Executar script de configuração comum
-          echo "[UserData] Executando configurações comuns..."
-          source ./setup-common.sh
-          
-          # Executar script específico da aplicação
           echo "[UserData] Executando instalação da aplicação ${ProjectName}..."
           ./install-app.sh
           
-          # Limpeza
-          cd /
+          echo "[UserData] Limpando arquivos temporários..."
           rm -rf /tmp/install-scripts
           
           echo "[UserData] Configuração da instância de aplicação concluída!"
@@ -781,10 +770,9 @@ Resources:
         - DeviceName: /dev/sda1
           Ebs:
             VolumeSize: !Ref DatabaseVolumeSize
-            VolumeType: gp3
+            VolumeType: gp2
             Encrypted: true
-            DeleteOnTermination: false
-            Iops: 3000
+            DeleteOnTermination: true
       IamInstanceProfile: !Ref ApplicationInstanceProfile
       Tags:
         - Key: Name
@@ -798,36 +786,25 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
             #!/bin/bash
-            
-            # Log de execução
             exec > >(tee -a /var/log/user-data.log) 2>&1
-            
+            # set -e
             echo "[UserData] Iniciando configuração da instância de banco de dados..."
             
-            # Definir variáveis de ambiente para o script
             export AWS_REGION="${AWS::Region}"
             export DB_SECRET_ARN="${DatabaseSecret}"
             export DB_USERNAME="${DatabaseUsername}"
             export DB_NAME="${DatabaseName}"
-            export GITHUB_REPO_URL="https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts"
-            
-            # Criar diretório temporário para script
+
+            echo "[UserData] Baixando script de instalação do PostgreSQL..."
             mkdir -p /tmp/install-scripts
             cd /tmp/install-scripts
-            
-            # Baixar script do GitHub
-            echo "[UserData] Baixando script de instalação do PostgreSQL..."
-            wget "$GITHUB_REPO_URL/install-postgresql.sh" -O install-postgresql.sh
-            
-            # Tornar script executável
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-postgresql.sh" -O install-postgresql.sh
             chmod +x install-postgresql.sh
             
-            # Executar script de instalação
             echo "[UserData] Executando instalação do PostgreSQL..."
             ./install-postgresql.sh
             
-            # Limpeza
-            cd /
+            echo "[UserData] Limpando arquivos temporários..."
             rm -rf /tmp/install-scripts
             
             echo "[UserData] Configuração da instância de banco de dados concluída!"
