@@ -6,11 +6,6 @@ log "Iniciando configurações comuns para as aplicações i-educar/i-diario..."
 log "Configurando timezone..."
 timedatectl set-timezone America/Sao_Paulo
 
-log "Instalando CloudWatch Agent..."
-wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/$ARCH/latest/amazon-cloudwatch-agent.deb
-dpkg -i -E ./amazon-cloudwatch-agent.deb
-rm -f ./amazon-cloudwatch-agent.deb
-
 log "Atualizando sistema e instalando dependências básicas..."
 apt update
 apt install -y git jq awscli
