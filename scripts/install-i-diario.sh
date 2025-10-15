@@ -1,27 +1,20 @@
 #!/bin/bash
-# i-Diário installation script
+source "$(dirname "$0")/setup-common.sh"
 
-# Running common setup script
-SCRIPT_DIR=$(dirname "$0")
-source "$SCRIPT_DIR/setup-common.sh"
-
-log "Projeto i-diario detectado. Iniciando instalação..."
+log "Iniciando instalação do i-Diário..."
 
 export DEBIAN_FRONTEND=noninteractive
 export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
-if ! apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis postgresql-client; then
-    error_exit "Falha na instalação de dependências."
-fi
+apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis postgresql-client
 
 log "Configurando OpenSSL..."
 mkdir -p ~/openssl
 cd ~/openssl
-if ! wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz || ! tar -xzvf openssl-1.1.1w.tar.gz; then
-    error_exit "Falha ao baixar ou extrair OpenSSL."
-fi
+wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+tar -xzvf openssl-1.1.1w.tar.gz
 cd openssl-1.1.1w
 ./config --prefix=/opt/openssl-1.1 --openssldir=/opt/openssl-1.1
 make -j$(nproc)
@@ -31,18 +24,14 @@ cd ~/
 log "Instalando Ruby via rbenv..."
 export PATH="$HOME/.rbenv/bin:$PATH"
 eval "$(rbenv init -)"
-if ! RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.6.6; then
-    error_exit "Falha ao instalar Ruby 2.6.6."
-fi
+RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.6.6
 rbenv global 2.6.6
 ruby -v
 gem update --system 3.3.22
 gem install bundler -v 2.4.22
 
 log "Instalando Node.js via NVM..."
-if ! curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash; then
-    error_exit "Falha ao baixar script de instalação do NVM."
-fi
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
@@ -53,16 +42,14 @@ node -v
 yarn -v
 
 log "Clonando repositório..."
-if ! git clone https://github.com/semed-bacabal/i-diario.git /var/www/idiario; then
-    error_exit "Falha ao clonar repositório."
-fi
+git clone https://github.com/semed-bacabal/i-diario.git /var/www/idiario
 cd /var/www/idiario
-chmod -R 777 /var/www/idiario
+chmod -R 777 .
 
 log "Instalando dependências do projeto..."
 export RAILS_ENV=production
-bundle install || error_exit "Falha no bundle install."
-yarn install || error_exit "Falha no yarn install."
+bundle install
+yarn install
 
 log "Configurando aplicação..."
 cp public/404.html.sample public/404.html
@@ -80,7 +67,6 @@ production:
   host: $DB_HOST
   port: 5432
 " > config/database.yml
-
 echo "
 production:
   secret_key_base: `bundle exec rails secret`
@@ -94,22 +80,17 @@ production:
 check_postgres
 
 log "Criando e migrando banco de dados..."
-bundle exec rails db:create || error_exit "Falha ao criar o banco de dados."
-bundle exec rails db:migrate || error_exit "Falha ao migrar o banco de dados."
+bundle exec rails db:create
+bundle exec rails db:migrate
 
 log "Pré-compilando assets..."
-bundle exec rails assets:precompile || error_exit "Falha ao pré-compilar assets."
+bundle exec rails assets:precompile
 
 log "Configurando entidade e admin..."
 bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
-bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$ || error_exit "Falha ao criar usuário admin."
-
-log "Instalação do i-Diário finalizada."
-log "$(date): i-Diario installation completed successfully" > /var/log/installation-complete.log
+bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
 
 log "Iniciando serviços..."
-mkdir -p log
-
 bundle exec rails server -b 0.0.0.0 -p 80 &
 bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 --logfile log/sidekiq.log &
 bundle exec sidekiq -c 10 --logfile log/sidekiq.log &
