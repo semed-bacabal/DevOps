@@ -1,11 +1,7 @@
 #!/bin/bash
-# i-Educar installation script
+source "$(dirname "$0")/setup-common.sh"
 
-# Running common setup script
-SCRIPT_DIR=$(dirname "$0")
-source "$SCRIPT_DIR/setup-common.sh"
-
-log "Projeto i-educar detectado. Iniciando instalação..."
+log "Iniciando instalação do i-Educar..."
 
 log "Adicionando repositórios PPA..."
 add-apt-repository ppa:openjdk-r/ppa -y
@@ -13,23 +9,17 @@ add-apt-repository ppa:ondrej/php -y
 
 log "Instalando dependências..."
 PHP_PACKAGES="php8.4-common php8.4-cli php8.4-fpm php8.4-bcmath php8.4-curl php8.4-mbstring php8.4-pgsql php8.4-xml php8.4-zip php8.4-gd"
-if ! apt install -y nginx redis openjdk-8-jdk openssl unzip git postgresql-client $PHP_PACKAGES; then
-    error_exit "Falha na instalação de dependências."
-fi
+apt install -y nginx redis openjdk-8-jdk openssl unzip git postgresql-client $PHP_PACKAGES
 
 log "Instalando Composer..."
 export HOME=/root
 export COMPOSER_ALLOW_SUPERUSER=1
-if ! php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" || \
-   ! php composer-setup.php --install-dir=/usr/bin --filename=composer || \
-   ! php -r "unlink('composer-setup.php');"; then
-    error_exit "Falha na instalação do Composer."
-fi
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php --install-dir=/usr/bin --filename=composer
+php -r "unlink('composer-setup.php');"
 
 log "Clonando repositório..."
-if ! git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar; then
-    error_exit "Falha ao clonar repositório."
-fi
+git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar
 cd /var/www/ieducar
 chmod -R 777 .
 
@@ -57,14 +47,10 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -s reload
 
 log "Instalando dependências do projeto..."
-if ! composer new-install; then
-    error_exit "Falha na instalação do i-Educar (composer)."
-fi
+composer new-install
 
 log "Populando banco de dados..."
-if ! php artisan db:seed; then
-    error_exit "Falha ao popular o banco de dados."
-fi
+php artisan db:seed
 
 log "Instalando módulos e finalizando configuração..."
 composer plug-and-play
@@ -73,6 +59,8 @@ php artisan vendor:publish --tag=reports-assets --ansi
 php artisan migrate
 php artisan cache:clear
 
+log "Verificando serviços..."
 systemctl status nginx --no-pager -l
 systemctl status php8.4-fpm --no-pager -l
+
 log "Instalação do i-Educar finalizada." > /var/log/installation-complete.log
