@@ -410,6 +410,9 @@ Resources:
                   - "ec2:DescribeInstances"
                   - "ec2:DescribeTags"
                 Resource: "*"
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: "*"
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-ec2-role
@@ -495,11 +498,6 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref ApplicationSecurityGroup
           Description: 'PostgreSQL access from application instances'
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
-          Description: 'SSH access from application instances'
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -717,7 +715,7 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           exec > >(tee -a /var/log/user-data.log) 2>&1
-          # set -e
+          set -e
           echo "[UserData] Iniciando configuração da instância de aplicação..."
           
           export AWS_REGION="${AWS::Region}"
@@ -787,7 +785,7 @@ Resources:
         Fn::Base64: !Sub |
             #!/bin/bash
             exec > >(tee -a /var/log/user-data.log) 2>&1
-            # set -e
+            set -e
             echo "[UserData] Iniciando configuração da instância de banco de dados..."
             
             export AWS_REGION="${AWS::Region}"
