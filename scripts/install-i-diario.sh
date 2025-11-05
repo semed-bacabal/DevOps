@@ -91,7 +91,7 @@ bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_
 bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
 
 log "Iniciando serviços..."
-bundle exec rails server -b 0.0.0.0 -p 3000 &
+bundle exec rails server -b 0.0.0.0 -p 80 &
 bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 --logfile log/sidekiq.log &
 bundle exec sidekiq -c 10 --logfile log/sidekiq.log &
 
