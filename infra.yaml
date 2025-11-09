@@ -656,12 +656,13 @@ Resources:
             set -e
             echo "[UserData] Iniciando configuração da instância de banco de dados..."
             
+            export PROJECT_NAME="${ProjectName}"
+            export ENVIRONMENT="${Environment}"
             export AWS_REGION="${AWS::Region}"
             export DB_SECRET_ARN="${DatabaseSecret}"
             export DB_USERNAME="${DatabaseUsername}"
             export DB_NAME="${DatabaseName}"
-            export PROJECT_NAME="${ProjectName}"
-            export ENVIRONMENT="${Environment}"
+            export S3_SECRET_ARN="${S3AccessSecret}"
 
             echo "[UserData] Baixando script de instalação do PostgreSQL..."
             mkdir -p /tmp/install-scripts
