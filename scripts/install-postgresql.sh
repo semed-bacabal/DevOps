@@ -76,10 +76,10 @@ DB_PASSWORD=\"${DB_PASSWORD}\"
 AWS_BUCKET=\"${AWS_BUCKET}\"
 PROJECT_NAME=\"${PROJECT_NAME}\"
 ENVIRONMENT=\"${ENVIRONMENT}\"
-BACKUP_DIR=\"/var/backups/db\"
+BACKUP_DIR=\"/tmp/backups/\"
 " > /etc/db-backup.conf
 
-mkdir -p /opt/db-backups /var/backups/db
+mkdir -p /opt/db-backups /tmp/backups
 wget -q "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/backup-db.sh" -O /opt/db-backups/backup-db.sh || true
 chmod 750 /opt/db-backups/backup-db.sh
 

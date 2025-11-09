@@ -29,14 +29,6 @@ rbenv global 2.6.6
 ruby -v
 gem update --system 3.3.22
 gem install bundler -v 2.4.22
-# TEST
-log "Persistindo configuração do Ruby (rbenv) para sessões futuras..."
-cat >/etc/profile.d/rbenv.sh <<'EOF'
-export RBENV_ROOT="/root/.rbenv"
-export PATH="$RBENV_ROOT/bin:$PATH"
-eval "$(rbenv init - bash)"
-EOF
-rbenv rehash || true
 
 log "Instalando Node.js via NVM..."
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
@@ -48,26 +40,6 @@ nvm use 14
 npm install -g yarn
 node -v
 yarn -v
-# TEST
-log "Persistindo configuração do Node (nvm) para sessões futuras..."
-cat >/etc/profile.d/nvm.sh <<'EOF'
-export NVM_DIR="/root/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-EOF
-
-log "Criando symlinks para binários comuns (ruby, node) em /usr/local/bin..."
-for cmd in ruby gem bundle rails rake; do
-  if [ -f "/root/.rbenv/shims/$cmd" ]; then
-    ln -sf "/root/.rbenv/shims/$cmd" "/usr/local/bin/$cmd"
-  fi
-done
-NODE_BIN="$(find /root/.nvm/versions/node -maxdepth 2 -type f -name node | head -n1)"
-if [ -n "$NODE_BIN" ]; then
-  ln -sf "$NODE_BIN" /usr/local/bin/node
-  ln -sf "${NODE_BIN%/node}/npm" /usr/local/bin/npm 2>/dev/null || true
-  ln -sf "${NODE_BIN%/node}/yarn" /usr/local/bin/yarn 2>/dev/null || true
-fi
 
 log "Clonando repositório..."
 git clone https://github.com/semed-bacabal/i-diario.git /var/www/idiario
