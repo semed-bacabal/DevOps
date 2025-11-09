@@ -20,7 +20,6 @@ Metadata:
         Parameters:
           - DatabaseName
           - DatabaseUsername
-          - PostgreSQLVersion
           - DatabaseInstanceType
           - DatabaseVolumeSize
       - Label:
@@ -40,8 +39,6 @@ Metadata:
         default: "Database Name"
       DatabaseUsername:
         default: "Database Username"
-      PostgreSQLVersion:
-        default: "PostgreSQL Version"
       DatabaseInstanceType:
         default: "Database Instance Type"
       DatabaseVolumeSize:
@@ -103,14 +100,6 @@ Parameters:
     MaxLength: 32
     AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
     ConstraintDescription: 'Must start with a letter and contain only letters, numbers or underscore'
-
-  PostgreSQLVersion:
-    Type: String
-    Default: '17'
-    AllowedValues:
-      - '16'
-      - '17'
-    ConstraintDescription: 'Must be 16 or 17'
 
   DatabaseInstanceType:
     Type: String
@@ -179,32 +168,6 @@ Resources:
       VpcId: !Ref MainVPC
       InternetGatewayId: !Ref MainInternetGateway
 
-  NATGatewayEIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-eip
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  MainNATGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NATGatewayEIP.AllocationId
-      SubnetId: !Ref PublicSubnetAZ1
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # Subnets Públicas
   PublicSubnetAZ1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -239,41 +202,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # Subnets Privadas
-  PrivateSubnetAZ1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MainVPC
-      CidrBlock: 10.0.2.0/24
-      MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [0, !GetAZs '']
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-subnet-az1
-        - Key: Type
-          Value: Private
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  PrivateSubnetAZ2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MainVPC
-      CidrBlock: 10.0.4.0/24
-      MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [1, !GetAZs '']
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-subnet-az2
-        - Key: Type
-          Value: Private
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
   # Routing Infrastructure
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -289,20 +217,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref MainVPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-rt
-        - Key: Type
-          Value: Private
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
   PublicRoute:
     Type: AWS::EC2::Route
     DependsOn: MainVPCGatewayAttachment
@@ -310,13 +224,6 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref MainInternetGateway
-
-  PrivateRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref MainNATGateway
 
   # Route Table Associations
   PublicSubnetAZ1RouteTableAssociation:
@@ -331,47 +238,9 @@ Resources:
       SubnetId: !Ref PublicSubnetAZ2
       RouteTableId: !Ref PublicRouteTable
 
-  PrivateSubnetAZ1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnetAZ1
-      RouteTableId: !Ref PrivateRouteTable
-
-  PrivateSubnetAZ2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnetAZ2
-      RouteTableId: !Ref PrivateRouteTable
-
   # ========================================
   # 2. IAM ROLES AND SECURITY
   # ========================================
-  
-  ApplicationLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/ec2/${ProjectName}-${Environment}-application"
-      RetentionInDays: 14
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${Environment}-app-logs"
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-  
-  DatabaseLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/ec2/${ProjectName}-${Environment}-database"
-      RetentionInDays: 30
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${Environment}-db-logs"
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
   
   ApplicationInstanceRole:
     Type: AWS::IAM::Role
@@ -634,7 +503,6 @@ Resources:
           Value: !Ref ProjectName
 
   # Load Balancer Listeners - Conditional creation based on SSL certificate
-
   HTTPListenerWithoutSSL:
     Condition: NoSSLCertificate
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -689,7 +557,7 @@ Resources:
       InstanceType: !Ref ApplicationInstanceType
       SecurityGroupIds:
         - !Ref ApplicationSecurityGroup
-      SubnetId: !Ref PrivateSubnetAZ1
+      SubnetId: !Ref PublicSubnetAZ1
       IamInstanceProfile: !Ref ApplicationInstanceProfile
       ImageId: !If
         - IsApplicationArm64
@@ -762,7 +630,7 @@ Resources:
       InstanceType: !Ref DatabaseInstanceType
       SecurityGroupIds:
         - !Ref DatabaseSecurityGroup
-      SubnetId: !Ref PrivateSubnetAZ1
+      SubnetId: !Ref PublicSubnetAZ1
       ImageId: '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id}}'
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
@@ -792,6 +660,8 @@ Resources:
             export DB_SECRET_ARN="${DatabaseSecret}"
             export DB_USERNAME="${DatabaseUsername}"
             export DB_NAME="${DatabaseName}"
+            export PROJECT_NAME="${ProjectName}"
+            export ENVIRONMENT="${Environment}"
 
             echo "[UserData] Baixando script de instalação do PostgreSQL..."
             mkdir -p /tmp/install-scripts
