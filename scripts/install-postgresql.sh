@@ -63,4 +63,29 @@ systemctl status postgresql --no-pager -l
 log "Testando conexão..."
 sudo -u postgres psql -c "SELECT version();"
 
+log "Configurando backup diário..."
+
+echo "
+AWS_REGION=\"${AWS_REGION}\"
+DB_USERNAME=\"${DB_USERNAME}\"
+DB_NAME=\"${DB_NAME}\"
+DB_PASSWORD=\"${DB_PASSWORD}\"
+AWS_BUCKET=\"$AWS_BUCKET\"
+PROJECT_NAME=\"${PROJECT_NAME:-${ProjectName:-}}\"
+ENVIRONMENT=\"${ENVIRONMENT:-${Environment:-}}\"
+BACKUP_DIR=\"/var/backups/db\"
+" > /etc/db-backup.conf
+
+mkdir -p /opt/db-backups /var/backups/db
+wget -q "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/backup-db.sh" -O /opt/db-backups/backup-db.sh || true
+chmod 750 /opt/db-backups/backup-db.sh
+
+echo "
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+0 3 * * * root /opt/db-backups/backup-db.sh
+" > /etc/cron.d/db-daily-backups
+chmod 644 /etc/cron.d/db-daily-backups
+log "Cron configurado para /opt/db-backups/backup-db.sh (03:00)."
+
 log "Instalação do PostgreSQL finalizada." > /var/log/installation-complete.log

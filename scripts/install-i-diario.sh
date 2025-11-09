@@ -8,7 +8,7 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
-apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis postgresql-client
+apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis git postgresql-client nginx
 
 log "Configurando OpenSSL..."
 mkdir -p ~/openssl
@@ -56,7 +56,7 @@ cp public/404.html.sample public/404.html
 cp public/500.html.sample public/500.html
 
 log "Configurando banco de dados e segredos..."
-echo -e "
+echo "
 production:
   adapter: postgresql
   encoding: utf8
@@ -77,6 +77,12 @@ production:
   AWS_BUCKET: $AWS_BUCKET
 " > config/secrets.yml
 
+log "Configurando Nginx..."
+cp /var/www/idiario/DevOps/nginx/* /etc/nginx/sites-available/
+rm -f /etc/nginx/sites-enabled/default
+ln -s /etc/nginx/sites-available/idiario /etc/nginx/sites-enabled/
+nginx -s reload
+
 check_postgres
 
 log "Criando e migrando banco de dados..."
@@ -91,7 +97,7 @@ bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_
 bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
 
 log "Iniciando serviços..."
-bundle exec rails server -b 0.0.0.0 -p 80 &
+bundle exec rails server -b 0.0.0.0 -p 3000 &
 bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 --logfile log/sidekiq.log &
 bundle exec sidekiq -c 10 --logfile log/sidekiq.log &
 
