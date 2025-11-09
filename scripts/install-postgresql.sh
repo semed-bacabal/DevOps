@@ -86,9 +86,9 @@ chmod 750 /opt/db-backups/backup-db.sh
 echo "
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-30 13 * * * root /opt/db-backups/backup-db.sh
+45 15 * * * root /opt/db-backups/backup-db.sh
 " > /etc/cron.d/db-daily-backups
 chmod 644 /etc/cron.d/db-daily-backups
-log "Cron configurado para /opt/db-backups/backup-db.sh (03:00)."
+log "Cron configurado para /opt/db-backups/backup-db.sh (15:40)."
 
 log "Instalação do PostgreSQL finalizada." > /var/log/installation-complete.log
