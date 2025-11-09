@@ -9,7 +9,7 @@ echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
 apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis git postgresql-client nginx
-
+# apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis-server redis-tools git postgresql-client nginx
 log "Configurando OpenSSL..."
 mkdir -p ~/openssl
 cd ~/openssl
@@ -48,7 +48,7 @@ chmod -R 777 .
 
 log "Instalando dependências do projeto..."
 export RAILS_ENV=production
-export REDIS_URL=redis://localhost
+export REDIS_URL='redis://localhost'
 bundle install
 yarn install
 
@@ -83,6 +83,9 @@ cp /var/www/idiario/DevOps/nginx/* /etc/nginx/sites-available/
 rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/idiario /etc/nginx/sites-enabled/
 nginx -s reload
+
+# log "Habilitando e iniciando o Redis..."
+# systemctl enable --now redis-server
 
 check_postgres
 

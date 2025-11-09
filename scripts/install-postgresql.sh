@@ -83,7 +83,7 @@ chmod 750 /opt/db-backups/backup-db.sh
 systemctl enable --now cron
 echo "SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-45 17 * * * root /opt/db-backups/backup-db.sh >> /tmp/backups/db-daily-backups.log 2>&1
+00 03 * * * root /opt/db-backups/backup-db.sh >> /tmp/backups/db-daily-backups.log 2>&1
 " > /etc/cron.d/db-daily-backups
 chmod 644 /etc/cron.d/db-daily-backups
 systemctl reload cron 2>/dev/null || systemctl restart cron 2>/dev/null || true
