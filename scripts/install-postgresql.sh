@@ -69,10 +69,7 @@ export S3_SECRET=$(aws secretsmanager get-secret-value --secret-id "$S3_SECRET_A
 export AWS_BUCKET=$(echo "$S3_SECRET" | jq -r '.AWS_BUCKET')
 
 echo "
-AWS_REGION=\"${AWS_REGION}\"
-DB_USERNAME=\"${DB_USERNAME}\"
 DB_NAME=\"${DB_NAME}\"
-DB_PASSWORD=\"${DB_PASSWORD}\"
 AWS_BUCKET=\"${AWS_BUCKET}\"
 PROJECT_NAME=\"${PROJECT_NAME}\"
 ENVIRONMENT=\"${ENVIRONMENT}\"
@@ -83,12 +80,13 @@ mkdir -p /opt/db-backups /tmp/backups
 wget -q "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/backup-db.sh" -O /opt/db-backups/backup-db.sh || true
 chmod 750 /opt/db-backups/backup-db.sh
 
-echo "
-SHELL=/bin/bash
+systemctl enable --now cron
+echo "SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-45 15 * * * root /opt/db-backups/backup-db.sh
+45 17 * * * root /opt/db-backups/backup-db.sh >> /tmp/backups/db-daily-backups.log 2>&1
 " > /etc/cron.d/db-daily-backups
 chmod 644 /etc/cron.d/db-daily-backups
-log "Cron configurado para /opt/db-backups/backup-db.sh (15:40)."
+systemctl reload cron 2>/dev/null || systemctl restart cron 2>/dev/null || true
+log "Cron configurado para /opt/db-backups/backup-db.sh (17:30)."
 
 log "Instalação do PostgreSQL finalizada." > /var/log/installation-complete.log
