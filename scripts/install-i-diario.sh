@@ -48,7 +48,7 @@ chmod -R 777 .
 
 log "Instalando dependências do projeto..."
 export RAILS_ENV=production
-export REDIS_URL='redis://localhost'
+export REDIS_URL=redis://localhost:6379
 bundle install
 yarn install
 
