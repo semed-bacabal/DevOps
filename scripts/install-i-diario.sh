@@ -8,8 +8,8 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
-apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis git postgresql-client nginx
-# apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis-server redis-tools git postgresql-client nginx
+apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis-server redis-tools git postgresql-client nginx
+
 log "Configurando OpenSSL..."
 mkdir -p ~/openssl
 cd ~/openssl
@@ -70,7 +70,10 @@ production:
 echo "
 production:
   secret_key_base: `bundle exec rails secret`
-  REDIS_URL: 'redis://127.0.0.1:6379'
+  REDIS_URL: 'redis://127.0.0.1:6379/'
+  REDIS_DB_SIDEKIQ: 0
+  REDIS_DB_SESSION: 1
+  REDIS_DB_CACHE: 2
   AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
   AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
   AWS_REGION: $AWS_DEFAULT_REGION
@@ -83,8 +86,9 @@ rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/idiario /etc/nginx/sites-enabled/
 nginx -s reload
 
-# log "Habilitando e iniciando o Redis..."
-# systemctl enable --now redis-server
+log "Habilitando e iniciando o Redis..."
+systemctl enable --now redis-server
+redis-cli -h 127.0.0.1 -p 6379 ping
 
 check_postgres
 
