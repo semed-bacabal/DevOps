@@ -70,7 +70,7 @@ production:
 echo "
 production:
   secret_key_base: `bundle exec rails secret`
-  REDIS_URL: 'redis://localhost'
+  REDIS_URL: 'redis://127.0.0.1:6379/0'
   AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
   AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
   AWS_REGION: $AWS_DEFAULT_REGION
