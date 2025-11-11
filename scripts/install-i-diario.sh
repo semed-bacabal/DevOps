@@ -70,10 +70,7 @@ production:
 echo "
 production:
   secret_key_base: `bundle exec rails secret`
-  REDIS_URL: 'redis://127.0.0.1:6379'
-  REDIS_DB_SIDEKIQ: 0
-  REDIS_DB_SESSION: 1
-  REDIS_DB_CACHE: 2
+  REDIS_URL: 'redis://localhost'
   AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
   AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
   AWS_REGION: $AWS_DEFAULT_REGION
@@ -101,7 +98,7 @@ bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
 
 log "Iniciando serviços..."
 bundle exec rails server -b 0.0.0.0 -p 3000 &
-bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 --logfile log/sidekiq.log &
-bundle exec sidekiq -c 10 --logfile log/sidekiq.log &
+bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 &
+bundle exec sidekiq -c 10 &
 
 log "Instalação do i-Diário finalizada." > /var/log/installation-complete.log
