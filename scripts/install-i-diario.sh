@@ -48,7 +48,6 @@ chmod -R 777 .
 
 log "Instalando dependências do projeto..."
 export RAILS_ENV=production
-export redis_url=redis://127.0.0.1:6379/0
 bundle install
 yarn install
 
@@ -71,7 +70,10 @@ production:
 echo "
 production:
   secret_key_base: `bundle exec rails secret`
-  REDIS_URL: 'redis://127.0.0.1:6379/0'
+  REDIS_URL: 'redis://127.0.0.1:6379'
+  REDIS_DB_CACHE: /0
+  REDIS_DB_SESSION: /1
+  REDIS_DB_SIDEKIQ: /2
   AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
   AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
   AWS_REGION: $AWS_DEFAULT_REGION
