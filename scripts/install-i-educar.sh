@@ -46,6 +46,9 @@ sed -i 's/fpm:9000/unix:\/run\/php\/php-fpm.sock/g' /etc/nginx/conf.d/upstream.c
 rm -f /etc/nginx/sites-enabled/default
 nginx -s reload
 
+log "Configurando Composer para permitir pacotes com alertas de segurança..."
+composer config --no-plugins audit.block-insecure false
+
 log "Instalando dependências do projeto..."
 composer new-install
 
