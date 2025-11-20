@@ -65,9 +65,6 @@ sudo -u postgres psql -c "SELECT version();"
 
 log "Configurando backup diário..."
 
-export S3_SECRET=$(aws secretsmanager get-secret-value --secret-id "$S3_SECRET_ARN" --query SecretString --output text)
-export AWS_BUCKET=$(echo "$S3_SECRET" | jq -r '.AWS_BUCKET')
-
 echo "
 DB_NAME=\"${DB_NAME}\"
 AWS_BUCKET=\"${AWS_BUCKET}\"

@@ -17,6 +17,7 @@ export COMPOSER_ALLOW_SUPERUSER=1
 php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
 php composer-setup.php --install-dir=/usr/bin --filename=composer
 php -r "unlink('composer-setup.php');"
+composer config --no-plugins audit.block-insecure false
 
 log "Clonando repositório..."
 git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar
@@ -45,9 +46,6 @@ cp docker/nginx/snippets/* /etc/nginx/snippets/
 sed -i 's/fpm:9000/unix:\/run\/php\/php-fpm.sock/g' /etc/nginx/conf.d/upstream.conf
 rm -f /etc/nginx/sites-enabled/default
 nginx -s reload
-
-log "Configurando Composer para permitir pacotes com alertas de segurança..."
-composer config --no-plugins audit.block-insecure false
 
 log "Instalando dependências do projeto..."
 composer new-install
