@@ -17,7 +17,6 @@ export COMPOSER_ALLOW_SUPERUSER=1
 php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
 php composer-setup.php --install-dir=/usr/bin --filename=composer
 php -r "unlink('composer-setup.php');"
-composer config --no-plugins audit.block-insecure false
 
 log "Clonando repositório..."
 git clone https://github.com/semed-bacabal/i-educar.git /var/www/ieducar
@@ -48,6 +47,7 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -s reload
 
 log "Instalando dependências do projeto..."
+composer config --no-plugins audit.block-insecure false
 composer new-install
 
 log "Populando banco de dados..."
