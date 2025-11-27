@@ -28,6 +28,7 @@ RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.4.10
 rbenv global 2.4.10
 ruby -v
 gem install bundler -v 1.17.3
+rbenv rehash
 bundler -v
 
 log "Instalando Node.js via NVM..."
