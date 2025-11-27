@@ -8,7 +8,7 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf && sysctl -p
 
 log "Instalando dependências..."
-apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis git postgresql-client nginx
+apt install -y curl wget build-essential libpq-dev shared-mime-info rbenv redis-server git postgresql-client nginx
 
 log "Configurando OpenSSL..."
 mkdir -p ~/openssl
@@ -24,19 +24,18 @@ cd ~/
 log "Instalando Ruby via rbenv..."
 export PATH="$HOME/.rbenv/bin:$PATH"
 eval "$(rbenv init -)"
-RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.6.6
-rbenv global 2.6.6
+RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.4.10
+rbenv global 2.4.10
 ruby -v
-gem update --system 3.3.22
-gem install bundler -v 2.4.22
+gem install bundler -v '1.17.3'
 
 log "Instalando Node.js via NVM..."
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-nvm install 14
-nvm use 14
+nvm install 12.22.1
+nvm use 12.22.1
 npm install -g yarn
 node -v
 yarn -v
@@ -69,7 +68,7 @@ production:
 " > config/database.yml
 echo "
 production:
-  secret_key_base: `bundle exec rails secret`
+  secret_key_base: `bundle exec rake secret`
   REDIS_URL: 'redis://127.0.0.1:6379'
   REDIS_DB_CACHE: /0
   REDIS_DB_SESSION: /1
@@ -89,19 +88,31 @@ nginx -s reload
 check_postgres
 
 log "Criando e migrando banco de dados..."
-bundle exec rails db:create
-bundle exec rails db:migrate
-
-log "Pré-compilando assets..."
-bundle exec rails assets:precompile
+bundle exec rake db:create
+bundle exec rake db:migrate
 
 log "Configurando entidade e admin..."
-bundle exec rails entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
-bundle exec rails entity:admin:create NAME=idiario ADMIN_PASSWORD=A123456789$
+bundle exec rake entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
+
+log "Criando usuário administrador..."
+bundle exec rails runner "
+Entity.last.using_connection do
+  User.create!(
+    email: 'admin@domain.com.br',
+    password: '123456789',
+    password_confirmation: '123456789',
+    status: 'active',
+    kind: 'employee',
+    admin: true,
+    first_name: 'Admin'
+  )
+end
+puts 'Usuário administrador criado com sucesso!'
+"
 
 log "Iniciando serviços..."
-bundle exec rails server -b 0.0.0.0 -p 3000 &
-bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 &
-bundle exec sidekiq -c 10 &
+bundle exec rails server &
+bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 -d --logfile log/sidekiq.log &
+bundle exec sidekiq -c 10 -d --logfile log/sidekiq.log &
 
 log "Instalação do i-Diário finalizada." > /var/log/installation-complete.log
