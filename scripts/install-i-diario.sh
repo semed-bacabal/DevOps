@@ -27,7 +27,8 @@ eval "$(rbenv init -)"
 RUBY_CONFIGURE_OPTS="--with-openssl-dir=/opt/openssl-1.1" rbenv install 2.4.10
 rbenv global 2.4.10
 ruby -v
-gem install bundler -v '1.17.3'
+gem install bundler -v 1.17.3
+bundler -v
 
 log "Instalando Node.js via NVM..."
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
