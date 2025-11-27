@@ -101,7 +101,7 @@ log "Configurando entidade e admin..."
 bundle exec rake entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
 
 log "Criando usuário administrador..."
-bundle exec rails runner "
+DISABLE_SPRING=1 bundle exec rails runner "
 Entity.last.using_connection {
   User.create!(
     email: 'admin@domain.com.br',
