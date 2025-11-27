@@ -94,6 +94,9 @@ log "Criando e migrando banco de dados..."
 bundle exec rake db:create
 bundle exec rake db:migrate
 
+log "Compilando assets..."
+bundle exec rake assets:precompile
+
 log "Configurando entidade e admin..."
 bundle exec rake entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_NAME
 
