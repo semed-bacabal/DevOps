@@ -102,7 +102,7 @@ bundle exec rake entity:setup NAME=idiario DOMAIN="$ALB_DNS_NAME" DATABASE=$DB_N
 
 log "Criando usuário administrador..."
 bundle exec rails runner "
-Entity.last.using_connection do
+Entity.last.using_connection {
   User.create!(
     email: 'admin@domain.com.br',
     password: '123456789',
@@ -112,8 +112,7 @@ Entity.last.using_connection do
     admin: true,
     first_name: 'Admin'
   )
-end
-puts 'Usuário administrador criado com sucesso!'
+}
 "
 
 log "Iniciando serviços..."
