@@ -79,7 +79,7 @@ production:
   AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
   AWS_REGION: $AWS_DEFAULT_REGION
   AWS_BUCKET: $AWS_BUCKET
-  EXAM_POSTING_QUEUES: 'exam_posting_1,exam_posting_2'
+  EXAM_POSTING_QUEUES: 'exam_posting_1,exam_posting_2,exam_posting_3'
 " > config/secrets.yml
 
 log "Configurando Nginx..."
@@ -117,9 +117,14 @@ Entity.last.using_connection {
 
 log "Iniciando serviços..."
 bundle exec rails server &
+bundle exec sidekiq -q synchronizer -c 1 --logfile log/sidekiq-synchronizer.log &
+bundle exec sidekiq -q synchronizer_full -c 1 --logfile log/sidekiq-synchronizer-full.log &
 bundle exec sidekiq -q synchronizer_enqueue_next_job -c 1 -d --logfile log/sidekiq.log &
+bundle exec sidekiq -q synchronizer_enqueue_next_job_full -c 1 --logfile log/sidekiq.log &
 bundle exec sidekiq -c 10 -d --logfile log/sidekiq.log &
-bundle exec sidekiq -q exam_posting_1 -c 1 -d --logfile log/sidekiq_exam_posting_1.log &
-bundle exec sidekiq -q exam_posting_2 -c 1 -d --logfile log/sidekiq_exam_posting_1.log &
+bundle exec sidekiq -q critical -c 1 -d --logfile log/critical.log &
+bundle exec sidekiq -q exam_posting_1 -c 1 -d --logfile log/sidekiq_exam_posting.log &
+bundle exec sidekiq -q exam_posting_2 -c 1 -d --logfile log/sidekiq_exam_posting.log &
+bundle exec sidekiq -q exam_posting_3 -c 1 -d --logfile log/sidekiq_exam_posting.log &
 
 log "Instalação do i-Diário finalizada." > /var/log/installation-complete.log
