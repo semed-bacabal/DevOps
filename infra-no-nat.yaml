@@ -1,0 +1,639 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Infrastructure for i-educar/i-diario
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Project Settings"}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: "Application Settings"}
+        Parameters: [AppInstanceType, AppVolumeSize]
+      - Label: {default: "Database Settings"}
+        Parameters: [DBInstanceType, DBVolumeSize, DBName, DBUsername]
+      - Label: {default: "SSL Settings"}
+        Parameters: [SSLCertificateArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: i-educar
+    AllowedValues: [i-educar, i-diario]
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, uat, prod]
+
+  AppInstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium, t4g.large, t4g.xlarge, t3.small, t3.medium, t3.large, t3.xlarge]
+
+  AppVolumeSize:
+    Type: Number
+    Default: 10
+    MinValue: 10
+    MaxValue: 500
+
+  DBInstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium, t4g.large]
+
+  DBVolumeSize:
+    Type: Number
+    Default: 10
+    MinValue: 10
+    MaxValue: 500
+
+  DBName:
+    Type: String
+    Default: semed_db
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
+
+  DBUsername:
+    Type: String
+    Default: semed_user
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
+
+  SSLCertificateArn:
+    Type: String
+    AllowedPattern: '^arn:aws:acm:[^:]+:[0-9]+:certificate/[a-zA-Z0-9-]+$'
+
+Conditions:
+  IsAppInstanceArm64: !Or
+    - !Equals [!Ref AppInstanceType, t4g.small]
+    - !Equals [!Ref AppInstanceType, t4g.medium]
+    - !Equals [!Ref AppInstanceType, t4g.large]
+    - !Equals [!Ref AppInstanceType, t4g.xlarge]
+
+Resources:
+  # VPC & NETWORKING CORE
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-vpc'}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-igw'}
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public-az1'}
+
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public-az2'}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public-rt'}
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAZ1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetAZ2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ2
+      RouteTableId: !Ref PublicRouteTable
+
+  # IAM ROLES & INSTANCE PROFILES
+
+  AppInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${Environment}-app-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-app-access-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DBSecret, !Ref S3AccessSecret]
+              - Effect: Allow
+                Action: s3:*
+                Resource:
+                  - !Sub "arn:aws:s3:::${AppBucket}"
+                  - !Sub "arn:aws:s3:::${AppBucket}/*"
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref AppInstanceRole]
+
+  DBInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${Environment}-db-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-db-access-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DBSecret, !Ref S3AccessSecret]
+              - Effect: Allow
+                Action: s3:*
+                Resource:
+                  - !Sub "arn:aws:s3:::${DbBucket}"
+                  - !Sub "arn:aws:s3:::${DbBucket}/*"
+
+  DBInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref DBInstanceRole]
+
+  S3AccessUser:
+    Type: AWS::IAM::User
+    DependsOn: AppBucket
+    Properties:
+      UserName: !Sub ${ProjectName}-${Environment}-s3-access-user
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-s3-full-access-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:*
+                Resource:
+                  - !Sub "arn:aws:s3:::${AppBucket}"
+                  - !Sub "arn:aws:s3:::${AppBucket}/*"
+
+  S3AccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref S3AccessUser
+
+  # SECURITY GROUPS
+  
+  AppLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-${Environment}-alb-sg
+      GroupDescription: ALB Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-alb-sg'}
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-${Environment}-app-sg
+      GroupDescription: Application Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AppLoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app-sg'}
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-${Environment}-db-sg
+      GroupDescription: Database Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-db-sg'}
+
+  # LOAD BALANCER & WAF
+  
+  WebApplicationFirewall:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-waf
+      Scope: REGIONAL
+      DefaultAction: 
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub ${ProjectName}-${Environment}-waf
+      Rules:
+        # Proteção base OWASP Top 10
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction: 
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules:
+                - Name: SizeRestrictions_BODY
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+        # Proteção reforçada contra SQL Injection
+        - Name: AWSManagedRulesSQLiRuleSet
+          Priority: 2
+          OverrideAction: 
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesSQLiRuleSet
+        # Proteção contra payloads maliciosos e exploits conhecidos
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 3
+          OverrideAction: 
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesKnownBadInputsRuleSet
+        # Bloqueia IPs maliciosos conhecidos
+        - Name: AWSManagedRulesAmazonIpReputationList
+          Priority: 4
+          OverrideAction: 
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAmazonIpReputationList
+        # Bloqueia acessos de VPNs, proxies anônimos e Tor
+        - Name: AWSManagedRulesAnonymousIpList
+          Priority: 5
+          OverrideAction: 
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAnonymousIpList
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAnonymousIpList
+        # Rate limiting geral: 1000 requisições por 5 minutos
+        - Name: RateLimitRule
+          Priority: 6
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+          Statement:
+            RateBasedStatement:
+              Limit: 1000
+              AggregateKeyType: IP
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimitRule
+
+  AppLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-alb
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      SecurityGroups: [!Ref AppLoadBalancerSecurityGroup]
+      Subnets: [!Ref PublicSubnetAZ1, !Ref PublicSubnetAZ2]
+      # LoadBalancerAttributes:
+      #   - Key: idle_timeout.timeout_seconds
+      #     Value: '60'
+      #   - Key: routing.http2.enabled
+      #     Value: 'true'
+      #   - Key: access_logs.s3.enabled
+      #     Value: 'false'
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-alb'}
+
+  WAFAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref AppLoadBalancer
+      WebACLArn: !GetAtt WebApplicationFirewall.Arn
+
+  AppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-app-tg
+      VpcId: !Ref VPC
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher: {HttpCode: '200,301,302'}
+      Targets:
+        - Id: !Ref AppInstance
+          Port: 80
+      # TargetGroupAttributes:
+      #   - Key: deregistration_delay.timeout_seconds
+      #     Value: '300'
+      #   - Key: stickiness.enabled
+      #     Value: 'false'
+      #   - Key: load_balancing.algorithm.type
+      #     Value: round_robin
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app-tg'}
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref AppLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig: {Protocol: HTTPS, Port: '443', StatusCode: HTTP_301}
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref AppLoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref SSLCertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AppTargetGroup
+
+  # EC2 INSTANCES
+  
+  AppInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DBInstance, S3AccessSecret, AppBucket]
+    Properties:
+      InstanceType: !Ref AppInstanceType
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      SubnetId: !Ref PublicSubnetAZ1
+      IamInstanceProfile: !Ref AppInstanceProfile
+      ImageId: !If
+        - IsAppInstanceArm64
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id}}'
+        - '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled}
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: !Ref AppVolumeSize, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app'}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          exec > >(tee -a /var/log/user-data.log) 2>&1
+          set -e
+          echo "[UserData] Iniciando configuração da instância de aplicação..."
+          
+          export AWS_REGION="${AWS::Region}"
+          export DB_HOST="${DBInstance.PrivateIp}"
+          export DB_SECRET_ARN="${DBSecret}"
+          export S3_SECRET_ARN="${S3AccessSecret}"
+          export DB_USERNAME="${DBUsername}"
+          export DB_NAME="${DBName}"
+          export ALB_DNS_NAME="${AppLoadBalancer.DNSName}"
+
+          echo "[UserData] Baixando scripts de instalação..."
+          mkdir -p /tmp/install-scripts
+          cd /tmp/install-scripts
+          wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/setup-common.sh" -O setup-common.sh
+          if [ "${ProjectName}" = "i-educar" ]; then
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-educar.sh" -O install-app.sh
+          elif [ "${ProjectName}" = "i-diario" ]; then
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-diario.sh" -O install-app.sh
+          fi
+          chmod +x *.sh
+          
+          echo "[UserData] Executando instalação da aplicação ${ProjectName}..."
+          ./install-app.sh
+          
+          echo "[UserData] Limpando arquivos temporários..."
+          rm -rf /tmp/install-scripts
+          
+          echo "[UserData] Configuração da instância de aplicação concluída!"
+
+  DBInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DBSecret, DbBucket]
+    Properties:
+      InstanceType: !Ref DBInstanceType
+      SecurityGroupIds: [!Ref DBSecurityGroup]
+      SubnetId: !Ref PublicSubnetAZ1
+      ImageId: '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id}}'
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled}
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: !Ref DBVolumeSize, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      IamInstanceProfile: !Ref DBInstanceProfile
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-database'}
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash
+            exec > >(tee -a /var/log/user-data.log) 2>&1
+            set -e
+            echo "[UserData] Iniciando configuração da instância de banco de dados..."
+            
+            export PROJECT_NAME="${ProjectName}"
+            export ENVIRONMENT="${Environment}"
+            export AWS_REGION="${AWS::Region}"
+            export AWS_BUCKET="${DbBucket}"
+            export DB_SECRET_ARN="${DBSecret}"
+            export DB_USERNAME="${DBUsername}"
+            export DB_NAME="${DBName}"
+
+            echo "[UserData] Baixando script de instalação do PostgreSQL..."
+            mkdir -p /tmp/install-scripts
+            cd /tmp/install-scripts
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-postgresql.sh" -O install-postgresql.sh
+            chmod +x install-postgresql.sh
+            
+            echo "[UserData] Executando instalação do PostgreSQL..."
+            ./install-postgresql.sh
+            
+            echo "[UserData] Limpando arquivos temporários..."
+            rm -rf /tmp/install-scripts
+            
+            echo "[UserData] Configuração da instância de banco de dados concluída!"
+
+  # S3 BUCKETS
+  
+  AppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub s3-${ProjectName}-${Environment}-application
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transition: {TransitionInDays: 30, StorageClass: STANDARD_IA}
+
+  DbBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub s3-${ProjectName}-${Environment}-backups
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transition: {TransitionInDays: 30, StorageClass: STANDARD_IA}
+
+  # SECRETS MANAGER
+  
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-db-credentials
+      GenerateSecretString:
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\`&$%*()[]{}!#^|;:,.<>?~=+ '
+        ExcludePunctuation: true
+        SecretStringTemplate: !Sub '{"username": "${DBUsername}"}'
+        GenerateStringKey: password
+
+  S3AccessSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-s3-credentials
+      SecretString: !Sub |
+        {
+          "AWS_BUCKET": "${AppBucket}",
+          "AWS_DEFAULT_REGION": "${AWS::Region}",
+          "AWS_ACCESS_KEY_ID": "${S3AccessKey}",
+          "AWS_SECRET_ACCESS_KEY": "${S3AccessKey.SecretAccessKey}"
+        }
+
+  # LOGGING & MONITORING
+
+  WAFLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub aws-waf-logs-${ProjectName}-${Environment}
+      RetentionInDays: 14
+
+  WAFLoggingConfiguration:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt WebApplicationFirewall.Arn
+      LogDestinationConfigs:
+        - !GetAtt WAFLogGroup.Arn
+
+Outputs:
+  AppLoadBalancerURL:
+    Description: Public URL of the Application Load Balancer
+    Value: !Sub https://${AppLoadBalancer.DNSName}
+
+  AppInstanceId:
+    Description: Application EC2 instance ID
+    Value: !Ref AppInstance
+
+  DBInstanceId:
+    Description: PostgreSQL database EC2 instance ID
+    Value: !Ref DBInstance
