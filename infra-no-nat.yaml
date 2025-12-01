@@ -485,11 +485,11 @@ Resources:
           echo "[UserData] Baixando scripts de instalação..."
           mkdir -p /tmp/install-scripts
           cd /tmp/install-scripts
-          wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/setup-common.sh" -O setup-common.sh
+          wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/1.6/scripts/setup-common.sh" -O setup-common.sh
           if [ "${ProjectName}" = "i-educar" ]; then
-            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-educar.sh" -O install-app.sh
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/1.6/scripts/install-i-educar.sh" -O install-app.sh
           elif [ "${ProjectName}" = "i-diario" ]; then
-            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-i-diario.sh" -O install-app.sh
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/1.6/scripts/install-i-diario.sh" -O install-app.sh
           fi
           chmod +x *.sh
           
@@ -534,7 +534,7 @@ Resources:
             echo "[UserData] Baixando script de instalação do PostgreSQL..."
             mkdir -p /tmp/install-scripts
             cd /tmp/install-scripts
-            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/main/scripts/install-postgresql.sh" -O install-postgresql.sh
+            wget "https://raw.githubusercontent.com/semed-bacabal/DevOps/1.6/scripts/install-postgresql.sh" -O install-postgresql.sh
             chmod +x install-postgresql.sh
             
             echo "[UserData] Executando instalação do PostgreSQL..."

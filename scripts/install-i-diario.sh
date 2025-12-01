@@ -44,6 +44,7 @@ yarn -v
 log "Clonando repositório..."
 git clone https://github.com/semed-bacabal/i-diario.git /var/www/idiario
 cd /var/www/idiario
+git checkout 1.6
 chmod -R 777 .
 
 log "Instalando dependências do projeto..."
