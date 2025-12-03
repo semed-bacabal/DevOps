@@ -601,7 +601,7 @@ Resources:
   AppSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub ${ProjectName}-${Environment}-app-credentials  
+      Name: !Sub ${ProjectName}-${Environment}-app  
       GenerateSecretString:
         PasswordLength: 32
         ExcludeCharacters: '"@/\\`&$%*()[]{}!#^|;:,.<>?~=+ '
@@ -612,7 +612,7 @@ Resources:
   DBSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub ${ProjectName}-${Environment}-db-credentials
+      Name: !Sub ${ProjectName}-${Environment}-db
       GenerateSecretString:
         PasswordLength: 32
         ExcludeCharacters: '"@/\\`&$%*()[]{}!#^|;:,.<>?~=+ '
@@ -623,7 +623,7 @@ Resources:
   S3AccessSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub ${ProjectName}-${Environment}-s3-credentials
+      Name: !Sub ${ProjectName}-${Environment}-s3
       SecretString: !Sub |
         {
           "AWS_BUCKET": "${AppBucket}",
