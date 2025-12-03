@@ -378,13 +378,6 @@ Resources:
       IpAddressType: ipv4
       SecurityGroups: [!Ref AppLoadBalancerSecurityGroup]
       Subnets: [!Ref PublicSubnetAZ1, !Ref PublicSubnetAZ2]
-      # LoadBalancerAttributes:
-      #   - Key: idle_timeout.timeout_seconds
-      #     Value: '60'
-      #   - Key: routing.http2.enabled
-      #     Value: 'true'
-      #   - Key: access_logs.s3.enabled
-      #     Value: 'false'
       Tags:
         - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-alb'}
 
@@ -414,13 +407,6 @@ Resources:
       Targets:
         - Id: !Ref AppInstance
           Port: 80
-      # TargetGroupAttributes:
-      #   - Key: deregistration_delay.timeout_seconds
-      #     Value: '300'
-      #   - Key: stickiness.enabled
-      #     Value: 'false'
-      #   - Key: load_balancing.algorithm.type
-      #     Value: round_robin
       Tags:
         - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app-tg'}
 
