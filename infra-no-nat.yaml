@@ -598,6 +598,17 @@ Resources:
 
   # SECRETS MANAGER
   
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-app-credentials  
+      GenerateSecretString:
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\`&$%*()[]{}!#^|;:,.<>?~=+ '
+        ExcludePunctuation: true
+        SecretStringTemplate: !Sub '{"username": "admin"}'
+        GenerateStringKey: password
+
   DBSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
